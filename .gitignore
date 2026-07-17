@@ -1,0 +1,8 @@
+build/
+install/
+log/
+__pycache__/
+*.pyc
+.tmp/
+isaac_ros_ws/
+.superpowers/
