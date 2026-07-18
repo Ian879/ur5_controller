@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Isaac Sim -> MoveIt2 bridge for the UR5 (SP1 Task 7).
+"""Isaac Sim -> MoveIt2 bridge for the UR5 (SP1 Task 8).
 
-A standalone Isaac Sim script that turns a user-provided UR5 ``.usd`` scene into
-a MoveIt2-driveable simulation:
+A standalone Isaac Sim script that references the UR5 robot USD at runtime
+(moveit.py style) and exposes it to MoveIt2:
 
   * publishes ``/clock`` (so the ROS2 side can run ``use_sim_time:=true``);
   * publishes ``/isaac_joint_states`` (read by the TopicBasedSystem hardware
@@ -12,21 +12,26 @@ a MoveIt2-driveable simulation:
   * publishes wrist-camera RGB + depth + camera_info
     (``/camera/color``, ``/camera/depth``, ``/camera/camera_info``).
 
-This is the UR5-scene equivalent of Isaac's bundled Franka ``moveit.py``, plus
-the RTX camera graph from ``camera_periodic.py``. The OmniGraph node wiring is
-copied *verbatim* from those two references and retargeted to ``--robot_prim`` /
-``--camera_prim``. See:
+This is the UR5 equivalent of Isaac's bundled Franka ``moveit.py``, plus the RTX
+camera graph from ``camera_periodic.py``. The robot USD is referenced at runtime
+via ``stage_utils.add_reference_to_stage(--usd, --robot_prim)`` (NOT opened as a
+pre-built scene): the build_scene.py pre-built scene did not compose the robot's
+physics/articulation sublayer, leaving ``/ur5/root_joint`` invalid and producing
+``Failed to find articulation``. The articulation is targeted at
+``--articulation_prim`` (default ``/ur5/root_joint``, where ArticulationRootAPI
+lives), NOT at ``/ur5``. The OmniGraph node wiring is copied *verbatim* from the
+two references. See:
 
   * ``/home/gds/isaacsim/standalone_examples/api/isaacsim.ros2.bridge/moveit.py``
   * ``/home/gds/isaacsim/standalone_examples/api/isaacsim.ros2.bridge/camera_periodic.py``
 
 Run with Isaac's bundled interpreter::
 
-    ~/isaacsim/python.sh isaac_scripts/ur5_isaac_bridge.py \
-        --usd /path/to/ur5_scene.usd \
-        [--robot_prim /UR5] \
-        [--camera_prim /UR5/wrist_camera] \
-        [--headless]
+    ~/isaacsim/python.sh isaac_scripts/ur5_isaac_bridge.py [--headless]
+
+    # Defaults: --usd <Isaac ur5.usd asset> --robot_prim /ur5
+    #           --articulation_prim /ur5/root_joint
+    #           --camera_prim /ur5/wrist_3_link/flange/wrist_camera
 
 The topic names ``isaac_joint_states`` / ``isaac_joint_commands`` are REQUIRED:
 they are the names T5/T6's TopicBasedSystem reads/writes (matching the official
@@ -39,23 +44,40 @@ import sys
 
 from isaacsim import SimulationApp
 
+# Default UR5 robot USD (Isaac 6.0 asset). Its ArticulationRootAPI lives on the
+# PhysicsFixedJoint ``/ur5/root_joint`` (NOT on ``/ur5``), and the 6 revolute
+# joints are at ``/ur5/joints/<name>_joint`` with names that match
+# ``ur_description`` exactly. Camera mount is ``/ur5/wrist_3_link/flange``.
+UR5_USD_DEFAULT = (
+    "/home/gds/isaacsim_assets/Assets/Isaac/6.0/Isaac/Robots/UniversalRobots/ur5/ur5.usd"
+)
+
 # argparse MUST be declared before constructing SimulationApp: the app installs
 # its own argparse machinery on import. This mirrors moveit.py / camera_periodic.
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument(
     "--usd",
-    required=True,
-    help="Path to the user's UR5 scene .usd to load (the robot + wrist camera).",
+    default=UR5_USD_DEFAULT,
+    help="Path to the UR5 robot .usd to reference at runtime (moveit.py style). "
+    "Default: the Isaac 6.0 ur5.usd asset.",
 )
 parser.add_argument(
     "--robot_prim",
-    default="/UR5",
-    help="Articulation root prim path the .usd is referenced under. Default: /UR5.",
+    default="/ur5",
+    help="Prim path to reference the robot USD under. Default: /ur5.",
+)
+parser.add_argument(
+    "--articulation_prim",
+    default="/ur5/root_joint",
+    help="Prim with ArticulationRootAPI (the PhysicsFixedJoint /ur5/root_joint). "
+    "Used for ArticulationController.robotPath AND ReadJointState.prim -- this is "
+    "the path that actually resolves the 6-DOF articulation. Default: /ur5/root_joint.",
 )
 parser.add_argument(
     "--camera_prim",
-    default="/UR5/wrist_camera",
-    help="Wrist camera prim path for RGBD publishing. Default: /UR5/wrist_camera.",
+    default="/ur5/wrist_3_link/flange/wrist_camera",
+    help="Wrist camera prim path (created by the bridge if absent). "
+    "Default: /ur5/wrist_3_link/flange/wrist_camera.",
 )
 parser.add_argument(
     "--headless",
@@ -81,8 +103,10 @@ import carb  # noqa: E402
 import isaacsim.core.experimental.utils.app as app_utils  # noqa: E402
 import isaacsim.core.experimental.utils.stage as stage_utils  # noqa: E402
 import omni  # noqa: E402
+import omni.usd  # noqa: E402
 import omni.graph.core as og  # noqa: E402
 import usdrt.Sdf  # noqa: E402
+from pxr import Gf, UsdGeom  # noqa: E402
 from isaacsim.core.simulation_manager import SimulationManager  # noqa: E402
 
 # Enable the ROS2 bridge extension and let it settle for one frame.
@@ -93,26 +117,59 @@ stage_utils.set_stage_units(meters_per_unit=1.0)
 
 print(
     f"[ur5_isaac_bridge] usd={args.usd} robot_prim={args.robot_prim} "
-    f"camera_prim={args.camera_prim} headless={args.headless}"
+    f"articulation_prim={args.articulation_prim} camera_prim={args.camera_prim} "
+    f"headless={args.headless}"
 )
 
-# --- Load the user's scene ---
-# Unlike moveit.py (which loads Franka + simple_room from Isaac assets), we load
-# ONLY the user-provided .usd, referenced under args.robot_prim. The wrist
-# camera is expected to already live in that .usd at args.camera_prim.
+# --- Reference the UR5 robot USD at runtime (moveit.py style) ---
+# T7 loaded a pre-built scene via open_stage(), but that scene was built by
+# build_scene.py which referenced ur5.usd at scene-build time. That build-time
+# reference did NOT compose the robot's physics/articulation sublayer, so
+# /ur5/root_joint was invalid on load -> "Failed to find articulation". The
+# proven fix (Isaac's own moveit.py) is to reference the robot USD at runtime
+# via stage_utils.add_reference_to_stage(...): this composes the FULL robot
+# (links + joints + articulation root) under args.robot_prim, so
+# /ur5/root_joint becomes a valid PhysicsFixedJoint with ArticulationRootAPI.
 stage_utils.add_reference_to_stage(args.usd, args.robot_prim)
+
+stage = omni.usd.get_context().get_stage()
+
+# --- Wrist camera prim (moveit.py doesn't need one; we do) ---
+# Mounted under /ur5/wrist_3_link/flange so it follows the wrist. Defined here
+# (not in a pre-built scene) because we no longer load build_scene.py's scene.
+camera_prim = UsdGeom.Camera.Define(stage, args.camera_prim)
+cam_xf = UsdGeom.Xformable(camera_prim)
+# Offset along tool-Z and flip so camera -Z faces the table (matches build_scene).
+# Camera is freshly Define()'d so it has no prior xform ops -- add unconditionally.
+cam_xf.AddTranslateOp().Set(Gf.Vec3f(0.0, 0.0, 0.04))
+cam_xf.AddRotateXYZOp().Set(Gf.Vec3f(180.0, 0.0, 0.0))
+camera_prim.GetFocalLengthAttr().Set(24.0)
+
+# --- Table box (visual reference, like build_scene.py) ---
+if not stage.GetPrimAtPath("/table").IsValid():
+    table = UsdGeom.Cube.Define(stage, "/table")
+    table.CreateSizeAttr(1.0)
+    table.AddScaleOp().Set(Gf.Vec3f(0.8, 0.8, 0.03))
+    table.AddTranslateOp().Set(Gf.Vec3f(0.6, 0.0, 0.785))
+    table.GetDisplayColorAttr().Set([(0.5, 0.35, 0.2)])
+
 simulation_app.update()
 
 # Sanity-check that the prims we wire into the OmniGraph actually exist in the
-# loaded stage. These are warnings (not fatal) so the user can still bring up a
-# partial bridge while debugging their scene.
-stage = omni.usd.get_context().get_stage()
-_robot_ok = bool(stage.GetPrimAtPath(args.robot_prim).IsValid())
+# loaded stage. The articulation prim is the load-bearing one: if it's invalid,
+# the OG nodes emit "Failed to find articulation" / "no DOFs found".
+_art_ok = bool(stage.GetPrimAtPath(args.articulation_prim).IsValid())
 _camera_ok = bool(stage.GetPrimAtPath(args.camera_prim).IsValid())
-if not _robot_ok:
+if not _art_ok:
     carb.log_warn(
-        f"Robot prim '{args.robot_prim}' is not valid after loading '{args.usd}'. "
-        "The joint-state/command graph will be built but will not function."
+        f"Articulation prim '{args.articulation_prim}' is not valid after "
+        f"referencing '{args.usd}'. The joint-state/command graph will be built "
+        "but will NOT function (expect 'Failed to find articulation')."
+    )
+else:
+    print(
+        f"[ur5_isaac_bridge] articulation prim OK: {args.articulation_prim} "
+        f"({stage.GetPrimAtPath(args.articulation_prim).GetTypeName()})"
     )
 if not _camera_ok:
     carb.log_warn(
@@ -123,7 +180,8 @@ if not _camera_ok:
 # =====================================================================
 # Action graph: /clock + /isaac_joint_states pub + /isaac_joint_commands sub
 #   (copied verbatim from moveit.py; retargeted robotPath / ReadJointState.prim
-#    to args.robot_prim, and pinned the two required isaac topic names).
+#    to args.articulation_prim = /ur5/root_joint, and pinned the two required
+#    isaac topic names).
 # =====================================================================
 try:
     og.Controller.edit(
@@ -168,9 +226,14 @@ try:
                 ("SubscribeJointState.outputs:effortCommand", "ArticulationController.inputs:effortCommand"),
             ],
             og.Controller.Keys.SET_VALUES: [
-                # Point the articulation controller + joint reader at our UR5 prim.
-                ("ArticulationController.inputs:robotPath", args.robot_prim),
-                ("ReadJointState.inputs:prim", [usdrt.Sdf.Path(args.robot_prim)]),
+                # Point the articulation controller + joint reader at the UR5
+                # articulation root (ArticulationRootAPI lives on the
+                # PhysicsFixedJoint /ur5/root_joint, NOT on /ur5). Targeting the
+                # root_joint is what makes Isaac find the 6-DOF articulation;
+                # pointing these at /ur5 reproduces the T7 "Failed to find
+                # articulation" / "no DOFs found" failure.
+                ("ArticulationController.inputs:robotPath", args.articulation_prim),
+                ("ReadJointState.inputs:prim", [usdrt.Sdf.Path(args.articulation_prim)]),
                 # REQUIRED topic names — match T5/T6 TopicBasedSystem + official moveit.py.
                 ("PublishJointState.inputs:topicName", "isaac_joint_states"),
                 ("SubscribeJointState.inputs:topicName", "isaac_joint_commands"),
@@ -184,10 +247,11 @@ simulation_app.update()
 
 # =====================================================================
 # Camera RGBD publish subgraph (copied verbatim from camera_periodic.py).
-#   Deviation: camera_periodic.py *creates* a Camera prim via DefinePrim; here
-#   the camera already lives in the user's USD at args.camera_prim, so we skip
-#   creation and point IsaacCreateRenderProduct straight at it. Topic names are
-#   set to camera/{color,depth,camera_info} as required by the task spec.
+#   The wrist camera prim was created above (UsdGeom.Camera.Define at
+#   args.camera_prim, mounted under /ur5/wrist_3_link/flange), so we skip
+#   camera_periodic.py's prim-creation block and point IsaacCreateRenderProduct
+#   straight at it. Topic names are camera/{color,depth,camera_info} as required
+#   by the task spec.
 # =====================================================================
 if _camera_ok:
     try:
