@@ -1,0 +1,39 @@
+# ROS2 controllers for the UR5 isaac (TopicBasedSystem) backend.
+#
+# Consumed by the generic controller_manager / ros2_control_node started in
+# sim_isaac.launch.py. Structure mirrors
+#   src/moveit_resources/panda_moveit_config/config/ros2_controllers.yaml
+# but for the 6 UR joints and with only the arm controller (no gripper).
+#
+# use_sim_time is true everywhere because Isaac Sim publishes /clock and the
+# whole stack (ros2_control + move_group) must run on sim time. With sim time
+# on, ur_moveit.launch.py defaults to the (non-scaled) joint_trajectory_controller,
+# so we configure that one (NOT scaled_joint_trajectory_controller) — matching
+# the mock backend (fake hardware also cannot use the scaled controller).
+controller_manager:
+  ros__parameters:
+    update_rate: 100  # Hz
+    use_sim_time: true
+
+    joint_trajectory_controller:
+      type: joint_trajectory_controller/JointTrajectoryController
+
+    joint_state_broadcaster:
+      type: joint_state_broadcaster/JointStateBroadcaster
+
+
+joint_trajectory_controller:
+  ros__parameters:
+    use_sim_time: true
+    command_interfaces:
+      - position
+    state_interfaces:
+      - position
+      - velocity
+    joints:
+      - shoulder_pan_joint
+      - shoulder_lift_joint
+      - elbow_joint
+      - wrist_1_joint
+      - wrist_2_joint
+      - wrist_3_joint

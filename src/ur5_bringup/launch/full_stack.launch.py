@@ -72,9 +72,12 @@ def _setup(context, *args, **kwargs):
         actions.append(_moveit_include("false", launch_rviz))
 
     elif backend == "isaac":
-        # Phase 2：Isaac Sim 在外部独立运行（isaac_scripts/ur5_isaac_moveit.py），
-        # 它通过 ROS2 bridge 发布 /joint_states、/clock 并订阅轨迹。这里只起 MoveIt，
-        # robot_description 需用带 TopicBasedSystem 的 xacro（Phase 2 再加包）。
+        # Phase 2：Isaac Sim 在外部独立运行（isaac_scripts/ur5_isaac_moveit.py, T7），
+        # 它通过 ROS2 bridge 发布 /clock、/isaac_joint_states 并订阅 /isaac_joint_commands。
+        # 这里起 ROS2 侧 bringup（ros2_control 的 TopicBasedSystem + 控制器 +
+        # robot_state_publisher），MoveIt 由 _moveit_include 起。isaac 后端完全不走
+        # ur_robot_driver（无 dashboard/urscript/真机硬件节点）——Isaac 就是"硬件"。
+        actions.append(_bringup_include("sim_isaac.launch.py"))
         actions.append(_moveit_include("true", launch_rviz))
 
     else:
