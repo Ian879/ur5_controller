@@ -26,6 +26,7 @@ from launch.substitutions import (
     PathJoinSubstitution,
 )
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
 
 
@@ -84,7 +85,11 @@ def generate_launch_description():
         ]
     )
 
-    robot_description = {"robot_description": robot_description_content}
+    # ParameterValue(value_type=str): the xacro output is a big URDF string;
+    # without this wrap launch_ros tries to YAML-parse it and fails
+    # ("Unable to parse the value of parameter robot_description as yaml").
+    # Mirrors ur_robot_driver/launch/ur_control.launch.py.
+    robot_description = {"robot_description": ParameterValue(robot_description_content, value_type=str)}
 
     # ===== controllers yaml =====
     controllers_yaml = PathJoinSubstitution(
