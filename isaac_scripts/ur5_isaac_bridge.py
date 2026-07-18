@@ -85,6 +85,16 @@ parser.add_argument(
     action="store_true",
     help="Run Isaac Sim headless (no viewport window).",
 )
+parser.add_argument(
+    "--stream",
+    default=False,
+    action="store_true",
+    help="Enable WebRTC livestream (omni.kit.livestream.app) so you can view the "
+    "sim in the Isaac Sim WebRTC Streaming Client (browser) -- same viewing as "
+    "isaac-sim.streaming.sh, but with the ROS bridge logic running. "
+    "Implies headless render (no local window); set hide_ui=False so the GUI "
+    "streams. Use this on machines without a local display.",
+)
 args, _ = parser.parse_known_args()
 
 # Fail fast on a bad --usd path: booting Isaac takes ~30s, so checking now saves
@@ -96,7 +106,21 @@ if not os.path.isfile(args.usd):
 ACTION_GRAPH_PATH = "/ActionGraph"
 ROS_CAMERA_GRAPH_PATH = "/ROS_Camera"
 
-simulation_app = SimulationApp({"headless": args.headless, "renderer": "RealTimePathTracing"})
+# SimulationApp config. --stream uses the official livestream config (headless
+# render + hide_ui=False so the GUI is composed for the WebRTC stream); see
+# ~/isaacsim/standalone_examples/api/isaacsim.simulation_app/livestream.py.
+if args.stream:
+    _launch_config = {
+        "width": 1280,
+        "height": 720,
+        "headless": True,        # no local window; render offscreen for the stream
+        "hide_ui": False,        # but compose the GUI so the client sees it
+        "renderer": "RealTimePathTracing",
+        "display_options": 3286,  # show default grid in the streamed view
+    }
+else:
+    _launch_config = {"headless": args.headless, "renderer": "RealTimePathTracing"}
+simulation_app = SimulationApp(_launch_config)
 
 # --- Isaac imports (only valid after SimulationApp is constructed) ---
 import carb  # noqa: E402
@@ -111,6 +135,13 @@ from isaacsim.core.simulation_manager import SimulationManager  # noqa: E402
 
 # Enable the ROS2 bridge extension and let it settle for one frame.
 app_utils.enable_extension("isaacsim.ros2.bridge")
+
+# Optionally enable the WebRTC livestream server (same viewing as
+# isaac-sim.streaming.sh). Connect from the Isaac Sim WebRTC Streaming Client.
+if args.stream:
+    simulation_app.set_setting("/app/window/drawMouse", True)
+    app_utils.enable_extension("omni.kit.livestream.app")
+
 simulation_app.update()
 
 stage_utils.set_stage_units(meters_per_unit=1.0)
