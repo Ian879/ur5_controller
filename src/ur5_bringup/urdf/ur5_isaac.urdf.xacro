@@ -1,0 +1,80 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://wiki.ros.org/xacro" name="ur5_isaac">
+  <!--
+    UR5 isaac (TopicBasedSystem) composer xacro.
+
+    This is the UR5 equivalent of
+      src/isaac_moveit/config/panda_isaac.urdf.xacro
+
+    It composes:
+      1. The UR kinematic chain (links + joints only) via ur_robot with
+         generate_ros2_control_tag:=false, i.e. the DEFAULT ur.ros2_control.xacro
+         (URPositionHardwareInterface / mock / gazebo) is NOT emitted.
+      2. The isaac ros2_control macro (TopicBasedSystem) defined in
+         ur5_isaac.ros2_control.xacro.
+
+    The ur_type / config-*.yaml arg resolution mirrors
+      /opt/ros/humble/share/ur_description/urdf/ur.urdf.xacro
+    so the kinematic chain is identical to the real-robot description; only the
+    <ros2_control> hardware plugin differs.
+
+    Typical use (T6 launch will wrap this):
+      xacro ur5_isaac.urdf.xacro ur_type:=ur5 ros2_control_hardware_type:=isaac
+  -->
+
+  <!-- ===== robot + ur_type + kinematic config args (mirror ur.urdf.xacro) ===== -->
+  <xacro:arg name="name" default="ur5_isaac"/>
+  <!-- possible ur_type values: ur3, ur5, ur10, ur3e, ur5e, ur10e, ur12e, ur16e,
+       ur8long, ur15, ur18, ur20, ur30 -->
+  <xacro:arg name="ur_type" default="ur5"/>
+  <xacro:arg name="tf_prefix" default=""/>
+  <xacro:arg name="joint_limit_params" default="$(find ur_description)/config/$(arg ur_type)/joint_limits.yaml"/>
+  <xacro:arg name="kinematics_params"  default="$(find ur_description)/config/$(arg ur_type)/default_kinematics.yaml"/>
+  <xacro:arg name="physical_params"    default="$(find ur_description)/config/$(arg ur_type)/physical_parameters.yaml"/>
+  <xacro:arg name="visual_params"      default="$(find ur_description)/config/$(arg ur_type)/visual_parameters.yaml"/>
+  <xacro:arg name="safety_limits"      default="false"/>
+  <xacro:arg name="safety_pos_margin"  default="0.15"/>
+  <xacro:arg name="safety_k_position"  default="20"/>
+
+  <!-- ===== isaac ros2_control args ===== -->
+  <xacro:arg name="ros2_control_hardware_type" default="isaac"/>
+  <xacro:arg name="initial_positions_file"     default="$(find ur_description)/config/initial_positions.yaml"/>
+
+  <!-- convert arg -> property so xacro.load_yaml can substitute it -->
+  <xacro:property name="initial_positions_file" value="$(arg initial_positions_file)"/>
+  <xacro:property name="initial_positions" value="${xacro.load_yaml(initial_positions_file)}"/>
+
+  <!-- world frame: ur_robot requires a parent link -->
+  <link name="world"/>
+
+  <!-- ===== 1) UR kinematic chain: links + joints ONLY (no default ros2_control) ===== -->
+  <xacro:include filename="$(find ur_description)/urdf/ur_macro.xacro"/>
+
+  <xacro:ur_robot
+    name="$(arg name)"
+    tf_prefix="$(arg tf_prefix)"
+    parent="world"
+    joint_limits_parameters_file="$(arg joint_limit_params)"
+    kinematics_parameters_file="$(arg kinematics_params)"
+    physical_parameters_file="$(arg physical_params)"
+    visual_parameters_file="$(arg visual_params)"
+    safety_limits="$(arg safety_limits)"
+    safety_pos_margin="$(arg safety_pos_margin)"
+    safety_k_position="$(arg safety_k_position)"
+    generate_ros2_control_tag="false"
+    initial_positions="${initial_positions}"
+  >
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </xacro:ur_robot>
+
+  <!-- ===== 2) isaac ros2_control (TopicBasedSystem) ===== -->
+  <xacro:include filename="$(find ur5_bringup)/urdf/ur5_isaac.ros2_control.xacro"/>
+
+  <xacro:ur5_isaac_ros2_control
+    name="$(arg name)"
+    tf_prefix="$(arg tf_prefix)"
+    ros2_control_hardware_type="$(arg ros2_control_hardware_type)"
+    initial_positions="${initial_positions}"
+  />
+
+</robot>

@@ -1,0 +1,101 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <!--
+    UR5 isaac (TopicBasedSystem) ros2_control macro.
+
+    This is the UR5 equivalent of
+      src/moveit_resources/panda_moveit_config/config/panda.ros2_control.xacro
+    and is composed into a full URDF by ur5_isaac.urdf.xacro.
+
+    ros2_control_hardware_type gating:
+      - 'isaac'           -> topic_based_ros2_control/TopicBasedSystem
+                             (reads isaac_joint_states, writes isaac_joint_commands)
+      - 'mock_components' -> mock_components/GenericSystem  (offline / planning-only)
+
+    The TopicBasedSystem topic names are NOT remapped in any launch file; they
+    are fixed here so the Isaac bridge (T7) only has to match these exact names.
+    See docs/sp1-isaac-moveit-wiring-notes.md.
+  -->
+  <xacro:macro name="ur5_isaac_ros2_control" params="
+    name
+    tf_prefix
+    ros2_control_hardware_type:=isaac
+    initial_positions:=${dict(shoulder_pan_joint=0.0,shoulder_lift_joint=-1.57,elbow_joint=0.0,wrist_1_joint=-1.57,wrist_2_joint=0.0,wrist_3_joint=0.0)}
+    ">
+
+    <ros2_control name="${name}" type="system">
+      <hardware>
+        <xacro:if value="${ros2_control_hardware_type == 'mock_components'}">
+          <plugin>mock_components/GenericSystem</plugin>
+        </xacro:if>
+        <xacro:if value="${ros2_control_hardware_type == 'isaac'}">
+          <plugin>topic_based_ros2_control/TopicBasedSystem</plugin>
+          <param name="joint_states_topic">isaac_joint_states</param>
+          <param name="joint_commands_topic">isaac_joint_commands</param>
+        </xacro:if>
+      </hardware>
+
+      <joint name="${tf_prefix}shoulder_pan_joint">
+        <command_interface name="position"/>
+        <state_interface name="position">
+          <param name="initial_value">${initial_positions['shoulder_pan_joint']}</param>
+        </state_interface>
+        <state_interface name="velocity">
+          <param name="initial_value">0.0</param>
+        </state_interface>
+      </joint>
+
+      <joint name="${tf_prefix}shoulder_lift_joint">
+        <command_interface name="position"/>
+        <state_interface name="position">
+          <param name="initial_value">${initial_positions['shoulder_lift_joint']}</param>
+        </state_interface>
+        <state_interface name="velocity">
+          <param name="initial_value">0.0</param>
+        </state_interface>
+      </joint>
+
+      <joint name="${tf_prefix}elbow_joint">
+        <command_interface name="position"/>
+        <state_interface name="position">
+          <param name="initial_value">${initial_positions['elbow_joint']}</param>
+        </state_interface>
+        <state_interface name="velocity">
+          <param name="initial_value">0.0</param>
+        </state_interface>
+      </joint>
+
+      <joint name="${tf_prefix}wrist_1_joint">
+        <command_interface name="position"/>
+        <state_interface name="position">
+          <param name="initial_value">${initial_positions['wrist_1_joint']}</param>
+        </state_interface>
+        <state_interface name="velocity">
+          <param name="initial_value">0.0</param>
+        </state_interface>
+      </joint>
+
+      <joint name="${tf_prefix}wrist_2_joint">
+        <command_interface name="position"/>
+        <state_interface name="position">
+          <param name="initial_value">${initial_positions['wrist_2_joint']}</param>
+        </state_interface>
+        <state_interface name="velocity">
+          <param name="initial_value">0.0</param>
+        </state_interface>
+      </joint>
+
+      <joint name="${tf_prefix}wrist_3_joint">
+        <command_interface name="position"/>
+        <state_interface name="position">
+          <param name="initial_value">${initial_positions['wrist_3_joint']}</param>
+        </state_interface>
+        <state_interface name="velocity">
+          <param name="initial_value">0.0</param>
+        </state_interface>
+      </joint>
+
+    </ros2_control>
+
+  </xacro:macro>
+</robot>

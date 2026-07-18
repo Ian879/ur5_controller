@@ -17,4 +17,10 @@ install(DIRECTORY config
   OPTIONAL
 )
 
+# UR5 isaac (TopicBasedSystem) xacro overlay; consumed by T6 launch via
+# robot_description_content := xacro ur5_isaac.urdf.xacro ...
+install(DIRECTORY urdf
+  DESTINATION share/${PROJECT_NAME}
+)
+
 ament_package()
