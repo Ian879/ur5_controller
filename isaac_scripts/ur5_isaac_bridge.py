@@ -176,17 +176,34 @@ cam_xf.AddTranslateOp().Set(Gf.Vec3f(0.0, 0.0, 0.04))
 cam_xf.AddRotateXYZOp().Set(Gf.Vec3f(180.0, 0.0, 0.0))
 camera_prim.GetFocalLengthAttr().Set(24.0)
 
-# --- Table box (visual reference, like build_scene.py) ---
+# --- Table: 桌面板 + 4 条桌腿（落地，像真桌子；不再悬浮）---
+# 桌面板 center (0.6,0,0.785)、size (0.8,0.8,0.03) —— 和 demo_table_scene 的
+# MoveIt collision box 一致。4 条腿从地面(z=0)撑到桌面板底，所以桌子是落地的。
 if not stage.GetPrimAtPath("/table").IsValid():
-    table = UsdGeom.Cube.Define(stage, "/table")
-    table.CreateSizeAttr(1.0)
-    # xformOpOrder: translate 先、scale 后（scale 在最内层）。
-    # 之前 scale 先、translate 后，USD 把 translate 也按 scale 缩放了 ->
-    # 桌子落到 (0.48,0,0.024) 而非 (0.6,0,0.785)（即那条 "translation
-    # applied before scale" warning）。translate 先则 scale 只作用于 cube 本身。
-    table.AddTranslateOp().Set(Gf.Vec3f(0.6, 0.0, 0.785))
-    table.AddScaleOp().Set(Gf.Vec3f(0.8, 0.8, 0.03))
-    table.GetDisplayColorAttr().Set([(0.5, 0.35, 0.2)])
+    UsdGeom.Xform.Define(stage, "/table")
+    _TOP_C = (0.6, 0.0, 0.785)
+    _TOP_S = (0.8, 0.8, 0.03)
+    _LEG = 0.05  # 桌腿截面 5cm
+    _leg_h = _TOP_C[2] - _TOP_S[2] / 2.0          # 桌面板底 = 桌腿顶
+    _hx_p = _TOP_C[0] + (_TOP_S[0] / 2.0 - _LEG)  # 桌腿 x（前/后）
+    _hx_n = _TOP_C[0] - (_TOP_S[0] / 2.0 - _LEG)
+    _hy = _TOP_S[1] / 2.0 - _LEG
+    _brown = (0.5, 0.35, 0.2)
+    # 桌面板
+    _top = UsdGeom.Cube.Define(stage, "/table/top")
+    _top.CreateSizeAttr(1.0)
+    _top.AddTranslateOp().Set(Gf.Vec3f(*_TOP_C))   # translate 先、scale 后（USD xformOpOrder）
+    _top.AddScaleOp().Set(Gf.Vec3f(*_TOP_S))
+    _top.GetDisplayColorAttr().Set([_brown])
+    # 4 条桌腿
+    for _i, (_lx, _ly) in enumerate(
+        [(_hx_p, _hy), (_hx_p, -_hy), (_hx_n, _hy), (_hx_n, -_hy)]
+    ):
+        _leg = UsdGeom.Cube.Define(stage, f"/table/leg{_i}")
+        _leg.CreateSizeAttr(1.0)
+        _leg.AddTranslateOp().Set(Gf.Vec3f(_lx, _ly, _leg_h / 2.0))
+        _leg.AddScaleOp().Set(Gf.Vec3f(_LEG, _LEG, _leg_h))
+        _leg.GetDisplayColorAttr().Set([_brown])
 
 # --- Standard grasping-scene environment (per Isaac manipulation tutorials) ---
 # GroundPlane: visible floor, so the table reads as a table (not "floating in
@@ -207,7 +224,7 @@ try:
     from pxr import Usd as _Usd  # noqa: E402
     for _path, _name in [
         ("/ur5/base_link", "base_link"),
-        ("/table", "table"),
+        ("/table/top", "tabletop"),
         ("/GroundPlane", "ground"),
         ("/DomeLight", "dome_light"),
     ]:
