@@ -152,68 +152,29 @@ print(
     f"headless={args.headless}"
 )
 
-# --- Reference the UR5 robot USD at runtime (moveit.py style) ---
-# T7 loaded a pre-built scene via open_stage(), but that scene was built by
-# build_scene.py which referenced ur5.usd at scene-build time. That build-time
-# reference did NOT compose the robot's physics/articulation sublayer, so
-# /ur5/root_joint was invalid on load -> "Failed to find articulation". The
-# proven fix (Isaac's own moveit.py) is to reference the robot USD at runtime
-# via stage_utils.add_reference_to_stage(...): this composes the FULL robot
-# (links + joints + articulation root) under args.robot_prim, so
-# /ur5/root_joint becomes a valid PhysicsFixedJoint with ArticulationRootAPI.
-stage_utils.add_reference_to_stage(args.usd, args.robot_prim)
+# --- Open the user's scene .usd (built in Isaac Sim GUI) as the world stage ---
+# The scene should contain the UR5 at args.robot_prim (/ur5, with
+# ArticulationRootAPI on /ur5/root_joint) plus whatever you added in the GUI
+# (table / ground / lights / objects). We OPEN it as the root stage (the scene
+# IS the world) and only inject the ROS2 bridge graph + a wrist camera.
+# Default --usd = robot-only ur5.usd (for quick tests without a full scene).
+_open_ok = omni.usd.get_context().open_stage(args.usd)
+if not _open_ok:
+    carb.log_error(f"Failed to open scene '{args.usd}' as world stage")
+    simulation_app.close()
+simulation_app.update()
 
 stage = omni.usd.get_context().get_stage()
 
-# --- Wrist camera prim (moveit.py doesn't need one; we do) ---
-# Mounted under /ur5/wrist_3_link/flange so it follows the wrist. Defined here
-# (not in a pre-built scene) because we no longer load build_scene.py's scene.
-camera_prim = UsdGeom.Camera.Define(stage, args.camera_prim)
-cam_xf = UsdGeom.Xformable(camera_prim)
-# Offset along tool-Z and flip so camera -Z faces the table (matches build_scene).
-# Camera is freshly Define()'d so it has no prior xform ops -- add unconditionally.
-cam_xf.AddTranslateOp().Set(Gf.Vec3f(0.0, 0.0, 0.04))
-cam_xf.AddRotateXYZOp().Set(Gf.Vec3f(180.0, 0.0, 0.0))
-camera_prim.GetFocalLengthAttr().Set(24.0)
-
-# --- Table: 桌面板 + 4 条桌腿（落地，像真桌子；不再悬浮）---
-# 桌面板 center (0.6,0,0.785)、size (0.8,0.8,0.03) —— 和 demo_table_scene 的
-# MoveIt collision box 一致。4 条腿从地面(z=0)撑到桌面板底，所以桌子是落地的。
-if not stage.GetPrimAtPath("/table").IsValid():
-    UsdGeom.Xform.Define(stage, "/table")
-    _TOP_C = (0.6, 0.0, 0.785)
-    _TOP_S = (0.8, 0.8, 0.03)
-    _LEG = 0.05  # 桌腿截面 5cm
-    _leg_h = _TOP_C[2] - _TOP_S[2] / 2.0          # 桌面板底 = 桌腿顶
-    _hx_p = _TOP_C[0] + (_TOP_S[0] / 2.0 - _LEG)  # 桌腿 x（前/后）
-    _hx_n = _TOP_C[0] - (_TOP_S[0] / 2.0 - _LEG)
-    _hy = _TOP_S[1] / 2.0 - _LEG
-    _brown = (0.5, 0.35, 0.2)
-    # 桌面板
-    _top = UsdGeom.Cube.Define(stage, "/table/top")
-    _top.CreateSizeAttr(1.0)
-    _top.AddTranslateOp().Set(Gf.Vec3f(*_TOP_C))   # translate 先、scale 后（USD xformOpOrder）
-    _top.AddScaleOp().Set(Gf.Vec3f(*_TOP_S))
-    _top.GetDisplayColorAttr().Set([_brown])
-    # 4 条桌腿
-    for _i, (_lx, _ly) in enumerate(
-        [(_hx_p, _hy), (_hx_p, -_hy), (_hx_n, _hy), (_hx_n, -_hy)]
-    ):
-        _leg = UsdGeom.Cube.Define(stage, f"/table/leg{_i}")
-        _leg.CreateSizeAttr(1.0)
-        _leg.AddTranslateOp().Set(Gf.Vec3f(_lx, _ly, _leg_h / 2.0))
-        _leg.AddScaleOp().Set(Gf.Vec3f(_LEG, _LEG, _leg_h))
-        _leg.GetDisplayColorAttr().Set([_brown])
-
-# --- Standard grasping-scene environment (per Isaac manipulation tutorials) ---
-# GroundPlane: visible floor, so the table reads as a table (not "floating in
-#   the sky"). DomeLight: environment illumination (the scene was dark).
-from isaacsim.core.experimental.objects import DomeLight as _DomeLight  # noqa: E402
-from isaacsim.core.experimental.objects import GroundPlane as _GroundPlane  # noqa: E402
-if not stage.GetPrimAtPath("/GroundPlane").IsValid():
-    _GroundPlane("/GroundPlane")
-if not stage.GetPrimAtPath("/DomeLight").IsValid():
-    _DomeLight("/DomeLight").set_intensities(1000.0)
+# --- Wrist camera (created only if the scene doesn't already have one) ---
+# 你在 GUI 里摆场景（桌/地面/灯/物体）；相机是 ROS 桥的事，场景没有才自动建一个
+# 挂到 wrist_3_link/flange（-Z 朝桌面）。若你在 GUI 里已加相机，传 --camera_prim 指向它。
+if not stage.GetPrimAtPath(args.camera_prim).IsValid():
+    camera_prim = UsdGeom.Camera.Define(stage, args.camera_prim)
+    cam_xf = UsdGeom.Xformable(camera_prim)
+    cam_xf.AddTranslateOp().Set(Gf.Vec3f(0.0, 0.0, 0.04))
+    cam_xf.AddRotateXYZOp().Set(Gf.Vec3f(180.0, 0.0, 0.0))
+    camera_prim.GetFocalLengthAttr().Set(24.0)
 
 simulation_app.update()
 
@@ -224,9 +185,8 @@ try:
     from pxr import Usd as _Usd  # noqa: E402
     for _path, _name in [
         ("/ur5/base_link", "base_link"),
-        ("/table/top", "tabletop"),
-        ("/GroundPlane", "ground"),
-        ("/DomeLight", "dome_light"),
+        (args.articulation_prim, "articulation"),
+        (args.camera_prim, "camera"),
     ]:
         _prim = stage.GetPrimAtPath(_path)
         if _prim.IsValid():
