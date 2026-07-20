@@ -188,6 +188,16 @@ if not stage.GetPrimAtPath("/table").IsValid():
     table.AddScaleOp().Set(Gf.Vec3f(0.8, 0.8, 0.03))
     table.GetDisplayColorAttr().Set([(0.5, 0.35, 0.2)])
 
+# --- Standard grasping-scene environment (per Isaac manipulation tutorials) ---
+# GroundPlane: visible floor, so the table reads as a table (not "floating in
+#   the sky"). DomeLight: environment illumination (the scene was dark).
+from isaacsim.core.experimental.objects import DomeLight as _DomeLight  # noqa: E402
+from isaacsim.core.experimental.objects import GroundPlane as _GroundPlane  # noqa: E402
+if not stage.GetPrimAtPath("/GroundPlane").IsValid():
+    _GroundPlane("/GroundPlane")
+if not stage.GetPrimAtPath("/DomeLight").IsValid():
+    _DomeLight("/DomeLight").set_intensities(1000.0)
+
 simulation_app.update()
 
 # --- diagnostic: print world positions so we can align MoveIt scene coords ---
@@ -198,7 +208,8 @@ try:
     for _path, _name in [
         ("/ur5/base_link", "base_link"),
         ("/table", "table"),
-        ("/floor", "floor"),
+        ("/GroundPlane", "ground"),
+        ("/DomeLight", "dome_light"),
     ]:
         _prim = stage.GetPrimAtPath(_path)
         if _prim.IsValid():
