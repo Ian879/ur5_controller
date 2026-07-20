@@ -180,11 +180,38 @@ camera_prim.GetFocalLengthAttr().Set(24.0)
 if not stage.GetPrimAtPath("/table").IsValid():
     table = UsdGeom.Cube.Define(stage, "/table")
     table.CreateSizeAttr(1.0)
-    table.AddScaleOp().Set(Gf.Vec3f(0.8, 0.8, 0.03))
+    # xformOpOrder: translate 先、scale 后（scale 在最内层）。
+    # 之前 scale 先、translate 后，USD 把 translate 也按 scale 缩放了 ->
+    # 桌子落到 (0.48,0,0.024) 而非 (0.6,0,0.785)（即那条 "translation
+    # applied before scale" warning）。translate 先则 scale 只作用于 cube 本身。
     table.AddTranslateOp().Set(Gf.Vec3f(0.6, 0.0, 0.785))
+    table.AddScaleOp().Set(Gf.Vec3f(0.8, 0.8, 0.03))
     table.GetDisplayColorAttr().Set([(0.5, 0.35, 0.2)])
 
 simulation_app.update()
+
+# --- diagnostic: print world positions so we can align MoveIt scene coords ---
+# base_link 应在 (0,0,0)；桌子 center 应在 (0.6,0,0.785)；地面 center 在 (0,0,-0.005)。
+# 若实际值不符，说明 transform/units 有问题。
+try:
+    from pxr import Usd as _Usd  # noqa: E402
+    for _path, _name in [
+        ("/ur5/base_link", "base_link"),
+        ("/table", "table"),
+        ("/floor", "floor"),
+    ]:
+        _prim = stage.GetPrimAtPath(_path)
+        if _prim.IsValid():
+            _t = UsdGeom.Xformable(_prim).ComputeLocalToWorldTransform(
+                _Usd.TimeCode.Default()
+            ).ExtractTranslation()
+            carb.log_warn(
+                f"[scene-diag] {_name:10s} world = ({_t[0]:.3f}, {_t[1]:.3f}, {_t[2]:.3f})"
+            )
+        else:
+            carb.log_warn(f"[scene-diag] {_name:10s} prim NOT FOUND at {_path}")
+except Exception as _e:  # noqa: BLE001
+    carb.log_warn(f"[scene-diag] failed: {_e}")
 
 # Sanity-check that the prims we wire into the OmniGraph actually exist in the
 # loaded stage. The articulation prim is the load-bearing one: if it's invalid,
