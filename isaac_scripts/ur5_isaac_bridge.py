@@ -29,9 +29,10 @@ Run with Isaac's bundled interpreter::
 
     ~/isaacsim/python.sh isaac_scripts/ur5_isaac_bridge.py [--headless]
 
-    # Defaults: --usd <Isaac ur5.usd asset> --robot_prim /ur5
+    # Defaults: --usd ~/Desktop/scene.usd  --robot_prim /ur5
     #           --articulation_prim /ur5/root_joint
     #           --camera_prim /ur5/wrist_3_link/flange/wrist_camera
+    # 你在 Isaac GUI 里搭 ~/Desktop/scene.usd（UR5+桌子+相机+灯光），桥加载它。
 
 The topic names ``isaac_joint_states`` / ``isaac_joint_commands`` are REQUIRED:
 they are the names T5/T6's TopicBasedSystem reads/writes (matching the official
@@ -57,9 +58,11 @@ UR5_USD_DEFAULT = (
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument(
     "--usd",
-    default=UR5_USD_DEFAULT,
-    help="Path to the UR5 robot .usd to reference at runtime (moveit.py style). "
-    "Default: the Isaac 6.0 ur5.usd asset.",
+    default=os.path.expanduser("~/Desktop/scene.usd"),
+    help="Path to the scene .usd to load as the world stage. You build/edit this "
+    "in the Isaac GUI (UR5 + table + camera + lights). Default: ~/Desktop/scene.usd. "
+    "The scene should reference the UR5 at --robot_prim (articulation at "
+    "--articulation_prim) and have a camera at --camera_prim.",
 )
 parser.add_argument(
     "--robot_prim",
@@ -97,10 +100,13 @@ parser.add_argument(
 )
 args, _ = parser.parse_known_args()
 
-# Fail fast on a bad --usd path: booting Isaac takes ~30s, so checking now saves
-# the user from waiting just to see a load failure later.
+# Fail fast on a missing scene: booting Isaac takes ~30s, so check now.
 if not os.path.isfile(args.usd):
-    print(f"ERROR: --usd path not found or not a file: {args.usd}", file=sys.stderr)
+    print(
+        f"ERROR: scene .usd not found: {args.usd}\n"
+        "  在 Isaac GUI 里搭建场景（UR5 + 桌子 + 相机 + 灯光），存成这个路径再跑。",
+        file=sys.stderr,
+    )
     sys.exit(1)
 
 ACTION_GRAPH_PATH = "/ActionGraph"
@@ -152,12 +158,11 @@ print(
     f"headless={args.headless}"
 )
 
-# --- Open the user's scene .usd (built in Isaac Sim GUI) as the world stage ---
-# The scene should contain the UR5 at args.robot_prim (/ur5, with
-# ArticulationRootAPI on /ur5/root_joint) plus whatever you added in the GUI
-# (table / ground / lights / objects). We OPEN it as the root stage (the scene
-# IS the world) and only inject the ROS2 bridge graph + a wrist camera.
-# Default --usd = robot-only ur5.usd (for quick tests without a full scene).
+# --- Load the user's scene .usd as the world stage ---
+# You build/edit ~/Desktop/scene.usd in the Isaac GUI (UR5 + table + camera +
+# lights). The bridge loads it and wires the ROS graph onto the robot's
+# articulation + camera. Ensure the scene references the UR5 at --robot_prim
+# (articulation at --articulation_prim) and has a camera at --camera_prim.
 _open_ok = omni.usd.get_context().open_stage(args.usd)
 if not _open_ok:
     carb.log_error(f"Failed to open scene '{args.usd}' as world stage")
@@ -166,27 +171,19 @@ simulation_app.update()
 
 stage = omni.usd.get_context().get_stage()
 
-# --- Wrist camera (created only if the scene doesn't already have one) ---
-# 你在 GUI 里摆场景（桌/地面/灯/物体）；相机是 ROS 桥的事，场景没有才自动建一个
-# 挂到 wrist_3_link/flange（-Z 朝桌面）。若你在 GUI 里已加相机，传 --camera_prim 指向它。
-if not stage.GetPrimAtPath(args.camera_prim).IsValid():
-    camera_prim = UsdGeom.Camera.Define(stage, args.camera_prim)
-    cam_xf = UsdGeom.Xformable(camera_prim)
-    cam_xf.AddTranslateOp().Set(Gf.Vec3f(0.0, 0.0, 0.04))
-    cam_xf.AddRotateXYZOp().Set(Gf.Vec3f(180.0, 0.0, 0.0))
-    camera_prim.GetFocalLengthAttr().Set(24.0)
+# (机器人/桌子/相机/灯光都在你的 scene.usd 里，桥不再运行时创建。)
 
-simulation_app.update()
-
-# --- diagnostic: print world positions so we can align MoveIt scene coords ---
-# base_link 应在 (0,0,0)；桌子 center 应在 (0.6,0,0.785)；地面 center 在 (0,0,-0.005)。
-# 若实际值不符，说明 transform/units 有问题。
+# --- diagnostic: 加载后核对关键 prim 是否存在/位置合理 ---
+# 核对场景里的 robot 根、articulation（承重）、相机、base_link。若 NOT FOUND，
+# 说明你的 scene.usd 里这些 prim 不在默认路径——用 --robot_prim /
+# --articulation_prim / --camera_prim 指过去，或在场景里放到默认路径。
 try:
     from pxr import Usd as _Usd  # noqa: E402
     for _path, _name in [
-        ("/ur5/base_link", "base_link"),
+        (args.robot_prim, "robot"),
         (args.articulation_prim, "articulation"),
         (args.camera_prim, "camera"),
+        (args.robot_prim + "/base_link", "base_link"),
     ]:
         _prim = stage.GetPrimAtPath(_path)
         if _prim.IsValid():
