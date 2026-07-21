@@ -6,3 +6,5 @@ __pycache__/
 .tmp/
 isaac_ros_ws/
 .superpowers/
+*.bak
+ur5_table.usd
