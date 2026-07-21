@@ -18,7 +18,7 @@ backend:=isaac 分支另行起（见 _moveit_include）；这里不带 RViz。
 """
 
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument
+from launch.actions import DeclareLaunchArgument, ExecuteProcess
 from launch.substitutions import (
     Command,
     FindExecutable,
@@ -28,6 +28,31 @@ from launch.substitutions import (
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
+
+
+def _retrying_spawner(controller_name, max_tries=60):
+    """起一个 ros2_control 控制器，每 2s 重试直到它 configure+activate 成功。
+
+    isaac 后端的 TopicBasedSystem 要等 /isaac_joint_states 有数据才暴露关节状态接口，
+    而 Isaac 桥启动很慢（30-60s）。若 spawner 在桥就绪前跑，configure() 失败、一次性
+    spawner 退出非零 → 控制器卡 unconfigured → /joint_states 不发 → RViz 渲染 URDF 默认
+    姿态、不同步（2026-07-21 排障根因）。launch 的 respawn=True 在 exit 0 也会重 Spawn
+    （execute_local.py:583 不查 returncode，成功会死循环），所以用 bash ``until`` 重试
+    spawner——成功（exit 0）即退。封顶 ``max_tries`` 防病态无限刷屏（如重复 launch 致控制器
+    已 active，此时 spawner 反而退非零）。"""
+    script = (
+        f"i=0; until ros2 run controller_manager spawner {controller_name} "
+        f"--controller-manager /controller_manager; do "
+        f"i=$((i+1)); if [ $i -ge {max_tries} ]; then "
+        f"echo '[spawner {controller_name}] {max_tries} 次重试仍失败——检查 "
+        f"controller_manager / Isaac 桥是否在发 /isaac_joint_states，或是否已有同名栈在跑'; "
+        f"exit 1; fi; echo '[spawner {controller_name}] 未就绪，重试 #'$i'（2s）'; sleep 2; done"
+    )
+    return ExecuteProcess(
+        cmd=["bash", "-c", script],
+        name=f"spawner_{controller_name}",
+        output="screen",
+    )
 
 
 def generate_launch_description():
@@ -126,29 +151,12 @@ def generate_launch_description():
         ],
     )
 
-    # ===== controller spawners =====
-    # The controllers inherit use_sim_time from controller_manager (yaml sets it
-    # true there + under each controller), so the spawner nodes don't need it
-    # (they are one-shot CLI clients that exit after configuring the controller).
-    joint_state_broadcaster_spawner = Node(
-        package="controller_manager",
-        executable="spawner",
-        arguments=[
-            "joint_state_broadcaster",
-            "--controller-manager",
-            "/controller_manager",
-        ],
-    )
-
-    joint_trajectory_controller_spawner = Node(
-        package="controller_manager",
-        executable="spawner",
-        arguments=[
-            "joint_trajectory_controller",
-            "--controller-manager",
-            "/controller_manager",
-        ],
-    )
+    # ===== controller spawners（自愈：失败重试到成功）=====
+    # TopicBasedSystem 要等 /isaac_joint_states 有数据才暴露状态接口，Isaac 桥启动慢，
+    # 一次性 spawner 可能 configure 失败而退出 → 控制器卡 unconfigured → /joint_states 不发
+    # → RViz 不同步。_retrying_spawner 用 bash until 包住 spawner，每 2s 重试直到 activate 成功。
+    joint_state_broadcaster_spawner = _retrying_spawner("joint_state_broadcaster")
+    joint_trajectory_controller_spawner = _retrying_spawner("joint_trajectory_controller")
 
     # ===== world -> base_link static TF (让 RViz 视觉对齐 Isaac 场景) =====
     # MoveIt 机器人模型 base_link 在 z=0（URDF 根），但 Isaac 场景里机器人被圆柱底座
