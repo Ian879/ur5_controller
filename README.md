@@ -34,12 +34,23 @@ Python 客户端 (ur5_motion, pymoveit2) ─action▶ move_group (规划+碰撞,
 ```
 ur5_controller/                 # = colcon workspace 根
 ├── src/
-│   ├── ur5_bringup/            # launch：full_stack(后端选择) / sim_mock / real_robot
-│   └── ur5_motion/             # pymoveit2 客户端(move_to_joint/pose + add_box/remove_collision) + 2 demo
+│   ├── ur5_bringup/            # launch：full_stack(后端选择) / sim_mock / sim_isaac / real_robot
+│   │   ├── launch/             #   full_stack / sim_mock / sim_isaac / real_robot
+│   │   ├── urdf/               #   ur5_isaac.urdf.xacro（TopicBasedSystem 硬件插件）
+│   │   └── config/             #   ur5_isaac_controllers.yaml + rtde 配方
+│   ├── ur5_motion/             # pymoveit2 客户端 + demos + world_sync_node
+│   │   └── ur5_motion/
+│   │       ├── moveit_client.py     # move_to_joint / move_to_pose / add_box
+│   │       ├── world_sync_node.py   # 读 scene_collisions.json → compound CollisionObject → PlanningScene
+│   │       └── demos/               # demo_plan_execute / demo_collision / sync_scene
+│   ├── isaac_moveit/           # （vendor）官方 isaac_moveit 包（Franka MoveIt 参考配置）
+│   └── moveit_resources/       # （vendor）panda moveit 配置（isaac_moveit 依赖）
+├── isaac_scripts/
+│   ├── ur5_isaac_bridge.py     # ★ Isaac 桥：加载 ~/Desktop/scene.usd + ROS2 bridge（关节/clock/相机）
+│   ├── export_scene_collisions.py  # 读 scene.usd 所有 collider → ~/Desktop/scene_collisions.json（按父分组）
+│   └── introspect_ur5.py       # UR5 USD 关节/链接探查（调试用）
 ├── tools/                      # source_env.sh / check_topics.sh / robot_ip.sh（★真机IP配置处）
-├── docs/                       # 验收清单 + 感知路线图
-├── ur5_controller/config.py    # （保留）ur_rtde 低级调试配置，标定阶段再用
-├── isaac_scripts/              # Phase 2：Isaac Sim 启动脚本
+├── docs/                       # 验收清单 + 感知路线图 + 真机安全清单
 └── README.md
 ```
 
@@ -48,8 +59,9 @@ ur5_controller/                 # = colcon workspace 根
 ```bash
 sudo apt update && sudo apt install -y \
     ros-humble-pymoveit2 \
+    ros-humble-topic-based-ros2-control \
+    ros-humble-ros2controlcli \
     python3-colcon-common-extensions
-# Phase 2 再加: ros-humble-topic-based-ros2-control
 ```
 
 ## 构建
@@ -84,10 +96,10 @@ ros2 run ur5_motion demo_collision        # 加障碍盒，验证碰撞检测绕
 ## 切换后端（不改业务代码）
 
 ```bash
-# Phase 2 Isaac（需另起 isaac_scripts/ur5_isaac_moveit.py）
+# Isaac Sim（需先跑桥 + 导出碰撞体，见下方"Isaac Sim 仿真后端"节）
 ros2 launch ur5_bringup full_stack.launch.py backend:=isaac
 
-# Phase 3 真机 —— 先把 IP 填进 tools/robot_ip.sh（设了 UR5_HOST 后无需再带 robot_ip:=）
+# 真机 —— 先把 IP 填进 tools/robot_ip.sh（设了 UR5_HOST 后无需再带 robot_ip:=）
 ros2 launch ur5_bringup full_stack.launch.py backend:=real
 # 或临时覆盖:  ... backend:=real robot_ip:=10.67.64.5
 ```
@@ -137,6 +149,62 @@ ros2 run ur5_motion demo_plan_execute
 
 **完整安全清单**见 [`docs/real_robot_bringup.md`](docs/real_robot_bringup.md)。
 
+## Isaac Sim 仿真后端（已验证 ✅）
+
+> 本机已验证：UR5 在 Isaac Sim 6.0.1 里被 MoveIt2 驱动（TopicBasedSystem），`demo_plan_execute`
+> 全绿、Isaac UR5 精确到位。`--stream` 走 WebRTC 推流（完整 streaming kit 配置）。
+
+### 工作流（三步）
+
+**① 你在 Isaac GUI 里搭场景**：存成 `~/Desktop/scene.usd`（UR5 + 桌子 + 灯光 + collider）。
+机器人放在某个 prim 下（如 `/World/ur5`），articulation root 在 `<robot_prim>/root_joint`。
+
+**② 导出碰撞体到 MoveIt**（改了 scene.usd 后跑一次，~10 秒）：
+```bash
+cd ~/isaacsim && source setup_ros_env.sh
+./python.sh /home/gds/projects/shengzhi/ur5_controller/isaac_scripts/export_scene_collisions.py
+# → ~/Desktop/scene_collisions.json（按父节点分组的 compound 对象，base_link 系）
+```
+
+**③ 起栈**（两个终端）：
+```bash
+# 终端 A：Isaac 桥（加载 scene.usd + ROS2 bridge + WebRTC 推流）
+cd ~/isaacsim && source setup_ros_env.sh
+./python.sh /home/gds/projects/shengzhi/ur5_controller/isaac_scripts/ur5_isaac_bridge.py \
+  --stream --robot_prim /World/ur5
+
+# 终端 B：PC 运动栈（world_sync_node 自动把碰撞体加进 MoveIt）
+cd /home/gds/projects/shengzhi/ur5_controller
+source tools/source_env.sh && source install/setup.bash
+ros2 launch ur5_bringup full_stack.launch.py backend:=isaac
+```
+
+- **`--robot_prim`**：你的 scene.usd 里机器人的 prim 路径（articulation/camera 自动从它推导）。
+- **`--stream`**：WebRTC 推流（和 `isaac-sim.streaming.sh` 同一套完整 kit 配置）。去掉则 headless 无画面。
+- **`world_sync_node`** 随栈自动启动，读 `scene_collisions.json` → 把 compound 碰撞对象加进 MoveIt
+  PlanningScene（table 整体含 top+legs，不是一个一个散的 box）。
+- **RViz Fixed Frame**：用 `world`（桥会发 `world→base_link` 的 TF 补偿机器人底座抬高）。
+
+### 桥的关键设计
+
+- 加载用户场景（`open_stage ~/Desktop/scene.usd`），**不在运行时建场景**。
+- 发 `/isaac_joint_states`（6 UR 关节）+ `/clock` + 腕部相机 RGBD（如果 scene.usd 里有 Camera prim）。
+- 订阅 `/isaac_joint_commands` 驱动 UR5 articulation。
+- 启动时自动清理残留 ActionGraph（防止旧 graph 带老 robotPath 报错）。
+
+### 碰撞同步原理
+
+```
+scene.usd (Isaac 物理世界)              MoveIt PlanningScene (规划世界)
+  │                                       │
+  │ export_scene_collisions.py            │ world_sync_node (launch 自动起)
+  │ 读所有 collider → base_link 系 ──────▶ │ compound CollisionObject
+  │ 按父节点分组（table=1 对象含 5 box）   │ → ApplyPlanningScene
+```
+
+**为什么不直接从 Isaac 发 CollisionObject**：Isaac 没有这个 OmniGraph 节点；我们的方式在
+frame 控制（base_link）、分组（compound）、launch 集成上更灵活，且不依赖 Isaac 运行时。
+
 ## 验收
 
 见 [`docs/phase1_verification.md`](docs/phase1_verification.md)。**首期硬指标**：
@@ -150,9 +218,9 @@ mock 下 `demo_plan_execute` 全绿 + `demo_collision` 绕开障碍 = 运动栈�
 ## 关键限制 / 已知点
 
 - ur_rtde **不做规划/碰撞**；它只作为低级调试/标定工具保留（见 `ur5_controller/config.py`）。
-- 此版本 ur_rtde control 侧无 `setStandardDigitalOut`/`setSpeedSlider`（IO 仅可读）。
 - mock 下 MoveIt 必须 `use_sim_time:=true`（否则会去找未激活的 scaled 控制器）——已内置。
 - **真机 CB3 固件需 ≥ 3.14**（3.9 的 primary 接口与 urcl 2.13.0 不兼容，会 SIGABRT）；官方最低 3.7。
 - 真机 **calibration 尚未校准**（driver 有警告，TCP 有轻微偏差）——抓取前用 `ur_calibration` 工具校准。
-- scaled 控制器对快速小目标可能返回 PREEMPTED（客户端可能误报失败，实际已到位）。
-- Phase 2 的 TopicBasedSystem 在 Isaac Sim 有轨迹抖动报告（NVIDIA 论坛），有降级方案。
+- Isaac 桥用 `open_stage` 加载 `~/Desktop/scene.usd`——场景由你在 Isaac GUI 里搭建/编辑。
+- Isaac 碰撞同步是**离线两步**（export → JSON → world_sync_node），非 Isaac 实时发布。
+- `world→base_link` TF 和碰撞体坐标是手算的（对应当前 scene.usd）；改了场景后需重跑 export。
