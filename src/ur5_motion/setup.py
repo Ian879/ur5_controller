@@ -25,6 +25,7 @@ setup(
             "demo_plan_execute = ur5_motion.demos.demo_plan_execute:main",
             "demo_collision = ur5_motion.demos.demo_collision:main",
             "demo_table_scene = ur5_motion.demos.demo_table_scene:main",
+            "sync_scene = ur5_motion.demos.sync_scene:main",
         ],
     },
 )
