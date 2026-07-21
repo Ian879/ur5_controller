@@ -242,6 +242,13 @@ if not _camera_ok:
         "will be skipped (joint/clock bridge still runs)."
     )
 
+# --- 清理残留 ActionGraph（之前的桥运行可能把图存进了 scene.usd，robotPath 是老的）---
+for _stale_path in ["/World/ActionGraph", "/ActionGraph"]:
+    _stale = stage.GetPrimAtPath(_stale_path)
+    if _stale.IsValid():
+        stage.RemovePrim(_stale.GetPath())
+        carb.log_warn(f"[ur5_isaac_bridge] removed stale graph {_stale_path}")
+
 # =====================================================================
 # Action graph: /clock + /isaac_joint_states pub + /isaac_joint_commands sub
 #   (copied verbatim from moveit.py; retargeted robotPath / ReadJointState.prim
