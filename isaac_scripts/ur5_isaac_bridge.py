@@ -34,6 +34,7 @@ Run with Isaac's bundled interpreter::
     # Defaults: --usd ~/Desktop/scene.usd  --robot_prim /ur5
     #           --articulation_prim /ur5/root_joint
     #           --camera_prim /ur5/wrist_3_link/flange/wrist_camera
+    #           (flange 在 ROS/MoveIt 里即 tool0 —— 相机挂载在末端工具帧下)
     # 你在 Isaac GUI 里搭 ~/Desktop/scene.usd（UR5+桌子+相机+灯光），桥加载它。
 
 The topic names ``isaac_joint_states`` / ``isaac_joint_commands`` are REQUIRED:
