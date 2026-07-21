@@ -74,7 +74,50 @@ colcon build --symlink-install
 source install/setup.bash
 ```
 
-## 运行（Phase 1：mock，无需真机/Isaac）
+## 快速启动
+
+> 一句话：**build 一次 → 每个终端 `source tools/source_env.sh` → `ros2 launch ur5_bringup full_stack.launch.py backend:=<mock|isaac|real>`**。
+> 相机（SP2）+ 静态碰撞同步已随栈自动起，无需额外命令。
+
+### 0. 首次 / 改了代码后（build 一次）
+```bash
+cd /home/gds/projects/shengzhi/ur5_controller
+source tools/source_env.sh
+colcon build --symlink-install
+```
+
+### 1. 每个新终端（全项目唯一环境入口）
+```bash
+cd /home/gds/projects/shengzhi/ur5_controller
+source tools/source_env.sh   # 退出 conda + source humble + Orbbec overlay(~/ros2_ws) + 本仓库 install
+```
+
+### 2. 起运动栈（三选一；都带 RViz + 相机 TF + 碰撞同步）
+```bash
+# mock —— 无需真机/Isaac，纯 fake hardware，先验证规划+碰撞+相机 TF
+ros2 launch ur5_bringup full_stack.launch.py backend:=mock
+
+# real —— 真机：先示教器 上电→松刹车→按 Play 启 external_control（详见"真机控制"节）
+ros2 launch ur5_bringup full_stack.launch.py backend:=real
+
+# isaac —— 先在另一终端跑 Isaac 桥（详见"Isaac Sim 仿真后端"节）
+ros2 launch ur5_bringup full_stack.launch.py backend:=isaac
+```
+常用参数：`launch_rviz:=false`（不开 RViz）、`robot_ip:=10.67.64.5`（临时覆盖真机 IP；默认读 `tools/robot_ip.sh` 的 `UR5_HOST`）。
+
+### 3. 验证 + 跑动作（另开终端，先 `source tools/source_env.sh`）
+```bash
+./tools/check_topics.sh             # 运动栈自检（controller / joint_states）
+./tools/check_camera.sh             # 相机自检（4 topic + 2 frame；mock 下只有 TF）
+ros2 run ur5_motion demo_plan_execute   # 全自动 plan & execute（关节/笛卡尔）
+ros2 run ur5_motion demo_collision      # 加障碍盒，验证碰撞绕行
+```
+
+> 各后端细节见下方专节：[真机控制](#真机控制rviz--moveit已验证-) / [Isaac Sim 仿真后端](#isaac-sim-仿真后端已验证-) / [RGBD 相机](#rgbd-相机orbbec-gemini-2eye-in-handsp2)。
+
+---
+
+## 运行示例（mock，演示客户端）
 
 终端 1——起运动栈（含 RViz）：
 ```bash
