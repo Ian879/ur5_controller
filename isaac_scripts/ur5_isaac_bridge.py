@@ -166,10 +166,13 @@ simulation_app.update()
 
 stage_utils.set_stage_units(meters_per_unit=1.0)
 
-print(
-    f"[ur5_isaac_bridge] usd={args.usd} robot_prim={args.robot_prim} "
-    f"articulation_prim={args.articulation_prim} camera_prim={args.camera_prim} "
-    f"headless={args.headless}"
+# 用 carb.log_warn 醒目打印（刷进 kit 日志，stdout 会被块缓冲看不到）
+carb.log_warn(
+    f"[ur5_isaac_bridge] >>> usd={args.usd}\n"
+    f"    robot_prim={args.robot_prim}\n"
+    f"    articulation_prim={args.articulation_prim}  (ArticulationController 用这个)\n"
+    f"    camera_prim={args.camera_prim}\n"
+    f"    headless={args.headless} stream={args.stream}"
 )
 
 # --- Load the user's scene .usd as the world stage ---
@@ -218,13 +221,18 @@ except Exception as _e:  # noqa: BLE001
 _art_ok = bool(stage.GetPrimAtPath(args.articulation_prim).IsValid())
 _camera_ok = bool(stage.GetPrimAtPath(args.camera_prim).IsValid())
 if not _art_ok:
-    carb.log_warn(
-        f"Articulation prim '{args.articulation_prim}' is not valid after "
-        f"referencing '{args.usd}'. The joint-state/command graph will be built "
-        "but will NOT function (expect 'Failed to find articulation')."
+    carb.log_error(
+        f"\n*** ARTICULATION PRIM '{args.articulation_prim}' 在场景 '{args.usd}' 里找不到 ***\n"
+        f"    你传的 --robot_prim='{args.robot_prim}' → 推导出 articulation='{args.articulation_prim}'。\n"
+        f"    但你的场景里机器人不在这个 prim。用 --robot_prim <你的机器人 prim> 覆盖\n"
+        f"    （例如 --robot_prim /World/ur5）。introspect 场景找 ArticulationRootAPI：\n"
+        f"      ~/isaacsim/python.sh -c \"from isaacsim import SimulationApp; app=SimulationApp({'headless':True}); "
+        f"from pxr import Usd,UsdPhysics; s=Usd.Stage.Open('{args.usd}'); "
+        f"[print(p.GetPath()) for p in s.Traverse() if p.HasAPI(UsdPhysics.ArticulationRootAPI)]\""
     )
+    simulation_app.close()
 else:
-    print(
+    carb.log_warn(
         f"[ur5_isaac_bridge] articulation prim OK: {args.articulation_prim} "
         f"({stage.GetPrimAtPath(args.articulation_prim).GetTypeName()})"
     )
