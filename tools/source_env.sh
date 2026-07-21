@@ -27,18 +27,30 @@ else
     echo "[source_env.sh] 警告: /opt/ros/humble/setup.bash 不存在" >&2
 fi
 
+# 4.5) ★ Orbbec SDK overlay（~/ros2_ws，SP2 相机集成）★
+#    Gemini 2 的 orbbec_camera 包在独立工作空间，按 colcon overlay 依赖顺序
+#    （humble underlay 之后、本仓库 overlay 之前）source。不存在则跳过。
+THIS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$THIS_DIR/.." && pwd)"
+ORBBEC_WS="${ORBBEC_WS:-$HOME/ros2_ws}"
+if [ -f "$ORBBEC_WS/install/setup.bash" ]; then
+    source "$ORBBEC_WS/install/setup.bash"
+else
+    echo "[source_env.sh] 提示: $ORBBEC_WS/install/setup.bash 不存在（未装 Orbbec 则忽略）" >&2
+fi
+
 # 5) RMW 与 Isaac Sim 的 setup_ros_env.sh 保持一致（默认即此值，显式设置以防被改）
 export RMW_IMPLEMENTATION="${RMW_IMPLEMENTATION:-rmw_fastrtps_cpp}"
 export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-0}"
 
-# 6) 本工作空间的 overlay（若已 colcon build）
-if [ -f "$(pwd)/install/setup.bash" ]; then
-    source "$(pwd)/install/setup.bash"
+# 6) 本仓库工作空间的 overlay（若已 colcon build）—— 用 THIS_DIR 而非 $(pwd)，
+#    使从任意子目录 source 都生效。
+if [ -f "$REPO_ROOT/install/setup.bash" ]; then
+    source "$REPO_ROOT/install/setup.bash"
 fi
 
 # 7) ★ 真机 IP（编辑 tools/robot_ip.sh 即可，这里自动加载）★
 #    设了 UR5_HOST 后，真机栈命令就不用再带 robot_ip:= 了。
-THIS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 [ -f "$THIS_DIR/robot_ip.sh" ] && source "$THIS_DIR/robot_ip.sh"
 
 # 自检
