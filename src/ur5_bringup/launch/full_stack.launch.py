@@ -83,6 +83,19 @@ def _setup(context, *args, **kwargs):
     else:
         raise RuntimeError(f"未知 backend: {backend}")
 
+    # ===== world_sync: 所有后端共用 =====
+    # 自动把 ~/Desktop/scene_collisions.json 里的静态碰撞体（桌面+桌腿+底座…）
+    # 加进 MoveIt PlanningScene。等 move_group 就绪后执行，发布后退出。
+    # JSON 不存在则 warn 跳过（不影响栈）。
+    actions.append(
+        Node(
+            package="ur5_motion",
+            executable="world_sync",
+            name="world_sync_node",
+            output="screen",
+        )
+    )
+
     return actions
 
 
