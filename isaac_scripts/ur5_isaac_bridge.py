@@ -9,8 +9,10 @@ A standalone Isaac Sim script that references the UR5 robot USD at runtime
     plugin wired in SP1 Task 5/6);
   * subscribes ``/isaac_joint_commands`` (written by TopicBasedSystem) and drives
     the UR5 articulation via ``IsaacArticulationController``;
-  * publishes wrist-camera RGB + depth + camera_info
-    (``/camera/color``, ``/camera/depth``, ``/camera/camera_info``).
+  * publishes wrist-camera RGB + depth + camera_info（标准 ROS RGBD 契约，与真机 Orbbec 一致）:
+    ``/camera/color/image_raw``, ``/camera/color/camera_info``,
+    ``/camera/depth/image_rect_raw``, ``/camera/depth/camera_info``
+    (frame: camera_color_optical_frame / camera_depth_optical_frame).
 
 This is the UR5 equivalent of Isaac's bundled Franka ``moveit.py``, plus the RTX
 camera graph from ``camera_periodic.py``. The robot USD is referenced at runtime
@@ -322,13 +324,13 @@ simulation_app.update()
 #   The wrist camera prim was created above (UsdGeom.Camera.Define at
 #   args.camera_prim, mounted under /ur5/wrist_3_link/flange), so we skip
 #   camera_periodic.py's prim-creation block and point IsaacCreateRenderProduct
-#   straight at it. Topic names are camera/{color,depth,camera_info} as required
-#   by the task spec.
+#   straight at it. Topic/frame 名对齐 Orbbec/ROS 标准 RGBD 契约（SP2 相机集成）：
+#   /camera/color/image_raw, /camera/color/camera_info,
+#   /camera/depth/image_rect_raw, /camera/depth/camera_info;
+#   frame camera_color_optical_frame / camera_depth_optical_frame.
 # =====================================================================
 if _camera_ok:
     try:
-        # frameId = trailing segment of the camera prim path (e.g. "wrist_camera").
-        camera_frame_id = args.camera_prim.rstrip("/").split("/")[-1] or "wrist_camera"
         keys = og.Controller.Keys
         ros_camera_graph, _, _, _ = og.Controller.edit(
             {
@@ -343,29 +345,38 @@ if _camera_ok:
                     ("cameraHelperRgb", "isaacsim.ros2.bridge.ROS2CameraHelper"),
                     ("cameraHelperInfo", "isaacsim.ros2.bridge.ROS2CameraInfoHelper"),
                     ("cameraHelperDepth", "isaacsim.ros2.bridge.ROS2CameraHelper"),
+                    ("cameraHelperDepthInfo", "isaacsim.ros2.bridge.ROS2CameraInfoHelper"),
                 ],
                 keys.CONNECT: [
                     ("OnTick.outputs:tick", "createRenderProduct.inputs:execIn"),
                     ("createRenderProduct.outputs:execOut", "cameraHelperRgb.inputs:execIn"),
                     ("createRenderProduct.outputs:execOut", "cameraHelperInfo.inputs:execIn"),
                     ("createRenderProduct.outputs:execOut", "cameraHelperDepth.inputs:execIn"),
+                    ("createRenderProduct.outputs:execOut", "cameraHelperDepthInfo.inputs:execIn"),
                     ("createRenderProduct.outputs:renderProductPath", "cameraHelperRgb.inputs:renderProductPath"),
                     ("createRenderProduct.outputs:renderProductPath", "cameraHelperInfo.inputs:renderProductPath"),
                     ("createRenderProduct.outputs:renderProductPath", "cameraHelperDepth.inputs:renderProductPath"),
+                    ("createRenderProduct.outputs:renderProductPath", "cameraHelperDepthInfo.inputs:renderProductPath"),
                 ],
                 keys.SET_VALUES: [
                     ("createRenderProduct.inputs:cameraPrim", [usdrt.Sdf.Path(args.camera_prim)]),
                     # Resolution matches camera_periodic.py; adjust here to throttle GPU cost.
                     ("createRenderProduct.inputs:width", 1280),
                     ("createRenderProduct.inputs:height", 720),
-                    ("cameraHelperRgb.inputs:frameId", camera_frame_id),
-                    ("cameraHelperRgb.inputs:topicName", "camera/color"),
+                    # RGB → /camera/color/image_raw
+                    ("cameraHelperRgb.inputs:frameId", "camera_color_optical_frame"),
+                    ("cameraHelperRgb.inputs:topicName", "camera/color/image_raw"),
                     ("cameraHelperRgb.inputs:type", "rgb"),
-                    ("cameraHelperInfo.inputs:frameId", camera_frame_id),
-                    ("cameraHelperInfo.inputs:topicName", "camera/camera_info"),
-                    ("cameraHelperDepth.inputs:frameId", camera_frame_id),
-                    ("cameraHelperDepth.inputs:topicName", "camera/depth"),
+                    # color CameraInfo → /camera/color/camera_info
+                    ("cameraHelperInfo.inputs:frameId", "camera_color_optical_frame"),
+                    ("cameraHelperInfo.inputs:topicName", "camera/color/camera_info"),
+                    # Depth → /camera/depth/image_rect_raw
+                    ("cameraHelperDepth.inputs:frameId", "camera_depth_optical_frame"),
+                    ("cameraHelperDepth.inputs:topicName", "camera/depth/image_rect_raw"),
                     ("cameraHelperDepth.inputs:type", "depth"),
+                    # depth CameraInfo → /camera/depth/camera_info（★新增，原来只有 color 的）
+                    ("cameraHelperDepthInfo.inputs:frameId", "camera_depth_optical_frame"),
+                    ("cameraHelperDepthInfo.inputs:topicName", "camera/depth/camera_info"),
                 ],
             },
         )
