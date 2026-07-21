@@ -97,6 +97,19 @@ def _setup(context, *args, **kwargs):
         )
     )
 
+    # ===== camera: 所有后端带（camera.launch.py 内部 gate real→起 Orbbec）=====
+    # real: Orbbec 驱动 + 占位 TF；isaac: 仅占位 TF（图像来自桥）；mock: 仅 TF。
+    actions.append(
+        IncludeLaunchDescription(
+            AnyLaunchDescriptionSource(
+                PathJoinSubstitution(
+                    [FindPackageShare("ur5_bringup"), "launch", "camera.launch.py"]
+                )
+            ),
+            launch_arguments={"backend": backend}.items(),
+        )
+    )
+
     return actions
 
 
