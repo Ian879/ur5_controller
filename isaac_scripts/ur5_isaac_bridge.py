@@ -71,16 +71,16 @@ parser.add_argument(
 )
 parser.add_argument(
     "--articulation_prim",
-    default="/ur5/root_joint",
-    help="Prim with ArticulationRootAPI (the PhysicsFixedJoint /ur5/root_joint). "
-    "Used for ArticulationController.robotPath AND ReadJointState.prim -- this is "
-    "the path that actually resolves the 6-DOF articulation. Default: /ur5/root_joint.",
+    default=None,
+    help="Prim with ArticulationRootAPI (PhysicsFixedJoint <robot_prim>/root_joint). "
+    "Used for ArticulationController.robotPath AND ReadJointState.prim. "
+    "If not given, defaults to <robot_prim>/root_joint (auto-derived).",
 )
 parser.add_argument(
     "--camera_prim",
-    default="/ur5/wrist_3_link/flange/wrist_camera",
-    help="Wrist camera prim path (created by the bridge if absent). "
-    "Default: /ur5/wrist_3_link/flange/wrist_camera.",
+    default=None,
+    help="Wrist camera prim path. If not given, defaults to "
+    "<robot_prim>/wrist_3_link/flange/wrist_camera (auto-derived).",
 )
 parser.add_argument(
     "--headless",
@@ -99,6 +99,13 @@ parser.add_argument(
     "streams. Use this on machines without a local display.",
 )
 args, _ = parser.parse_known_args()
+
+# articulation_prim / camera_prim 默认从 robot_prim 自动推导（这样只需 --robot_prim，
+# 适配用户改过的 prim 层级，不用单独传 articulation/camera 路径）。
+if args.articulation_prim is None:
+    args.articulation_prim = args.robot_prim + "/root_joint"
+if args.camera_prim is None:
+    args.camera_prim = args.robot_prim + "/wrist_3_link/flange/wrist_camera"
 
 # Fail fast on a missing scene: booting Isaac takes ~30s, so check now.
 if not os.path.isfile(args.usd):
