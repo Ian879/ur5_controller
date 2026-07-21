@@ -150,6 +150,16 @@ def generate_launch_description():
         ],
     )
 
+    # ===== world_sync: 自动把 scene_collisions.json 里的碰撞体加进 MoveIt PlanningScene =====
+    # 等 move_group 的 apply_planning_scene 服务就绪后执行，发布后退出。
+    # 如果 ~/Desktop/scene_collisions.json 不存在，warn 后跳过（不影响栈）。
+    world_sync_node = Node(
+        package="ur5_motion",
+        executable="world_sync",
+        name="world_sync_node",
+        output="screen",
+    )
+
     # ===== world -> base_link static TF (让 RViz 视觉对齐 Isaac 场景) =====
     # MoveIt 机器人模型 base_link 在 z=0（URDF 根），但 Isaac 场景里机器人被圆柱底座
     # 抬到世界 (-0.55, 0, 1.211)。发这个 TF 后，RViz Fixed Frame=world 会把机器人
@@ -176,5 +186,6 @@ def generate_launch_description():
             world_to_base_tf,
             joint_state_broadcaster_spawner,
             joint_trajectory_controller_spawner,
+            world_sync_node,
         ]
     )
