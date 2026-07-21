@@ -150,12 +150,30 @@ def generate_launch_description():
         ],
     )
 
+    # ===== world -> base_link static TF (让 RViz 视觉对齐 Isaac 场景) =====
+    # MoveIt 机器人模型 base_link 在 z=0（URDF 根），但 Isaac 场景里机器人被圆柱底座
+    # 抬到世界 (-0.55, 0, 1.211)。发这个 TF 后，RViz Fixed Frame=world 会把机器人
+    # 显示在抬高位置（和 Isaac 一致）。⚠️ 这些值对应当前 ~/Desktop/scene.usd；你在
+    # GUI 里挪了机器人就得改（或以后自动同步）。
+    world_to_base_tf = Node(
+        package="tf2_ros",
+        executable="static_transform_publisher",
+        name="world_to_base_link",
+        arguments=[
+            "--frame-id", "world",
+            "--child-frame-id", "base_link",
+            "-x", "-0.55", "-y", "0.0", "-z", "1.211",
+            "-Y", "0.0", "-P", "0.0", "-R", "0.0",
+        ],
+    )
+
     return LaunchDescription(
         [
             use_sim_time_arg,
             ur_type_arg,
             ros2_control_node,
             robot_state_publisher,
+            world_to_base_tf,
             joint_state_broadcaster_spawner,
             joint_trajectory_controller_spawner,
         ]
