@@ -25,8 +25,9 @@ Python 客户端 (ur5_motion, pymoveit2) ─action▶ move_group (规划+碰撞,
 - ROS2 **Humble**（`/opt/ros/humble`），已含 MoveIt2 全套、`ur_robot_driver 2.13.2`、`ur_moveit_config`、`ur_description`。
 - 规划组 `ur_manipulator`，chain `base_link → tool0`，命名位姿 `home`/`up`/`test_configuration`。
 - **conda 陷阱（头号）**：`.bashrc` 自动激活 conda `base`，使 `python3` 指向 miniconda，
-  与系统 humble C++ 栈 ABI 不符 → ROS2 节点收发失败。**所有 ROS2 命令前必须 `source tools/source_env.sh`**
-  （它会 deactivate conda 并从 PATH 剔除 miniconda，回到系统 `/usr/bin/python3`）。
+  与系统 humble C++ 栈 ABI 不符 → ROS2 节点收发失败。**所有 ROS2 命令前必须 `source tools/source_env.sh`**（全项目唯一环境入口）——它会
+  deactivate conda、从 PATH 剔除 miniconda、source humble + Orbbec overlay（`~/ros2_ws`）
+  + 本仓库 `install/setup.bash` + `robot_ip.sh`。从任意子目录 source 都生效。
 - 若想一劳永逸：`conda config --set auto_activate_base false`（一次即可）。
 
 ## 目录结构
@@ -204,6 +205,44 @@ scene.usd (Isaac 物理世界)              MoveIt PlanningScene (规划世界)
 
 **为什么不直接从 Isaac 发 CollisionObject**：Isaac 没有这个 OmniGraph 节点；我们的方式在
 frame 控制（base_link）、分组（compound）、launch 集成上更灵活，且不依赖 Isaac 运行时。
+
+## RGBD 相机（Orbbec Gemini 2，eye-in-hand，SP2）
+
+> Orbbec SDK（v2-main）在独立工作空间 `~/ros2_ws`，已编译。相机 eye-in-hand（腕部），
+> 当前**未装机**，TF 用占位（M7 手眼标定精修）。真机/Isaac 发布**同一套**标准 ROS RGBD 契约，
+> 下游感知（SP3/SP4）写一份即跨后端跑。
+
+### 契约（下游唯一接口）
+| Topic | frame |
+|---|---|
+| `/camera/color/image_raw`、`/camera/color/camera_info` | `camera_color_optical_frame` |
+| `/camera/depth/image_rect_raw`、`/camera/depth/camera_info` | `camera_depth_optical_frame` |
+
+### 用法（随 full_stack 自动起）
+相机已并入 `full_stack`（`camera.launch.py` 内部按 backend gate）：
+- **real**：自动起 Orbbec 驱动 + 占位 TF（`publish_tf:=false`，TF 子树由 launch 统一发）。
+- **isaac**：图像来自桥（`ur5_isaac_bridge.py` 已发标准 topic）；占位 TF 同样起。
+- **mock**：仅占位 TF，无图像。
+
+```bash
+source tools/source_env.sh   # 一步含 Orbbec overlay
+ros2 launch ur5_bringup full_stack.launch.py backend:=real
+./tools/check_camera.sh       # 核对 4 topic + 2 frame
+```
+
+相机**单独跑**（桌面调试，不接机器人）：
+```bash
+ros2 launch ur5_bringup camera.launch.py backend:=real
+```
+
+### Isaac 侧
+桥已把相机 topic/frame 对齐标准契约（见 `isaac_scripts/ur5_isaac_bridge.py` 相机 OmniGraph），
+并补了 depth 的 camera_info（原来只有 color 的）。Isaac 后端 RViz 用同一套 Image display。
+
+### 已知限制（SP2 范围外）
+- 手眼标定（M7）未做：`tool0→camera_link` 是占位，方向/位置待标定。
+- pointcloud 未做（FoundationPose 只要 RGB+depth）。
+- 真·eye-in-hand 闭环验证待物理安装。
 
 ## 验收
 
