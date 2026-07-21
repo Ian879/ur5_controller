@@ -162,8 +162,8 @@ def generate_launch_description():
         arguments=[
             "--frame-id", "world",
             "--child-frame-id", "base_link",
-            "-x", "-0.55", "-y", "0.0", "-z", "1.211",
-            "-Y", "0.0", "-P", "0.0", "-R", "0.0",
+            "--x", "-0.55", "--y", "0.0", "--z", "1.211",
+            "--yaw", "0.0", "--pitch", "0.0", "--roll", "0.0",
         ],
     )
 
