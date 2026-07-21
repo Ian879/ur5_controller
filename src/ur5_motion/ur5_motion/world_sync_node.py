@@ -18,7 +18,7 @@ from moveit_msgs.srv import ApplyPlanningScene
 from shape_msgs.msg import SolidPrimitive
 
 JSON_PATH = os.path.expanduser("~/Desktop/scene_collisions.json")
-APPLY_PLANNING_SCENE = "/move_group/apply_planning_scene"
+APPLY_PLANNING_SCENE = "/apply_planning_scene"
 
 
 def main():
