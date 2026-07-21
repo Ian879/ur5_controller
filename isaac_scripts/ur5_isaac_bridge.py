@@ -112,21 +112,28 @@ if not os.path.isfile(args.usd):
 ACTION_GRAPH_PATH = "/ActionGraph"
 ROS_CAMERA_GRAPH_PATH = "/ROS_Camera"
 
-# SimulationApp config. --stream uses the official livestream config (headless
-# render + hide_ui=False so the GUI is composed for the WebRTC stream); see
-# ~/isaacsim/standalone_examples/api/isaacsim.simulation_app/livestream.py.
+# SimulationApp config. --stream 用【完整】streaming kit 配置（isaacsim.exp.full.streaming.kit，
+# 和 isaac-sim.streaming.sh 一样，全插件 + WebRTC）；否则用 python.sh 默认的精简 base.python.kit。
 if args.stream:
     _launch_config = {
         "width": 1280,
         "height": 720,
         "headless": True,        # no local window; render offscreen for the stream
-        "hide_ui": False,        # but compose the GUI so the client sees it
+        "hide_ui": False,        # compose the GUI so the WebRTC client sees it
         "renderer": "RealTimePathTracing",
-        "display_options": 3286,  # show default grid in the streamed view
+        "display_options": 3286,
     }
+    # 关键：指定 experience=full.streaming.kit，否则 python.sh 默认加载精简的
+    # base.python.kit（少很多模块/插件）。
+    _isaac_root = os.path.dirname(os.environ.get("CARB_APP_PATH", "/home/gds/isaacsim/kit"))
+    _experience = os.path.join(_isaac_root, "apps", "isaacsim.exp.full.streaming.kit")
+    if not os.path.isfile(_experience):
+        print(f"ERROR: streaming kit not found: {_experience}", file=sys.stderr)
+        sys.exit(1)
 else:
     _launch_config = {"headless": args.headless, "renderer": "RealTimePathTracing"}
-simulation_app = SimulationApp(_launch_config)
+    _experience = ""  # 默认 base.python.kit
+simulation_app = SimulationApp(_launch_config, experience=_experience)
 
 # --- Isaac imports (only valid after SimulationApp is constructed) ---
 import carb  # noqa: E402
