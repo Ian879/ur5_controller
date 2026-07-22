@@ -89,7 +89,8 @@ def launch_setup(context, *args, **kwargs):
         [
             PathJoinSubstitution([FindExecutable(name="xacro")]),
             " ",
-            PathJoinSubstitution([FindPackageShare(description_package), "urdf", description_file]),
+            # Gripper xacro lives in ur5_bringup; UR config/kinematics still in ur_description.
+            PathJoinSubstitution([FindPackageShare("ur5_bringup"), "urdf", "ur5_with_gripper.urdf.xacro"]),
             " ",
             "robot_ip:=xxx.yyy.zzz.www",
             " ",
@@ -141,7 +142,8 @@ def launch_setup(context, *args, **kwargs):
             PathJoinSubstitution([FindExecutable(name="xacro")]),
             " ",
             PathJoinSubstitution(
-                [FindPackageShare(moveit_config_package), "srdf", moveit_config_file]
+                # Gripper srdf lives in ur5_bringup; UR kinematics/rviz still in ur_moveit_config.
+                [FindPackageShare("ur5_bringup"), "srdf", "ur5_with_gripper.srdf.xacro"]
             ),
             " ",
             "name:=",
@@ -154,7 +156,9 @@ def launch_setup(context, *args, **kwargs):
             " ",
         ]
     )
-    robot_description_semantic = {"robot_description_semantic": robot_description_semantic_content}
+    robot_description_semantic = {
+        "robot_description_semantic": ParameterValue(robot_description_semantic_content, value_type=str)
+    }
 
     publish_robot_description_semantic = {
         "publish_robot_description_semantic": _publish_robot_description_semantic
@@ -203,6 +207,16 @@ def launch_setup(context, *args, **kwargs):
     if change_controllers == "true":
         controllers_yaml["scaled_joint_trajectory_controller"]["default"] = False
         controllers_yaml["joint_trajectory_controller"]["default"] = True
+
+    # Lebai gripper GripperCommand handle. action name is fixed; real backend
+    # (lebai_driver/serial_gripper) and isaac backend (ur5_motion/isaac_gripper_action)
+    # each provide the same `lebai_gripper_controller/gripper_cmd` action.
+    controllers_yaml.setdefault("lebai_gripper_controller", {
+        "action_ns": "lebai_gripper_controller/gripper_cmd",
+        "type": "GripperCommand",
+        "default": True,
+        "joints": ["gripper_r_joint1"],
+    })
 
     moveit_controllers = {
         "moveit_simple_controller_manager": controllers_yaml,
