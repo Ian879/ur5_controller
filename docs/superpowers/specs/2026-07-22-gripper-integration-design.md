@@ -53,7 +53,7 @@
   - `real_robot.launch.py` 给 `ur_control.launch.py` 传 `description_file:=ur5_bringup/urdf/ur5_with_gripper.urdf.xacro`（ur_control 支持该 arg）。
   - isaac：`ur5_isaac.urdf.xacro` 里 include `gripper_macro` + 同一个 `tool0→gripper_base_link` fixed joint（offset 一致）。
 - **挂载 offset**：实现时 isaac 脚本一把读出 `gripper_abs_stl`（或 gripper_base 几何）相对 UR5 `tool0` 的 transform，填进 fixed joint origin。
-- **依赖**：`lebai_lm3_support` 包要可 `$(find)` 到 → `tools/source_env.sh` 加 `~/lebai_ws/install` overlay（仿 Orbbec 的 `~/ros2_ws`），并在 `ur5_bringup/package.xml` 加 `lebai_lm3_support` / `lebai_driver` exec_depend。
+- **依赖**：`lebai_lm3_support` / `lebai_driver` 现已作为 submodule 在 `src/third_party/lebai-ros-sdk`（2026-07-22 reorg），随本仓库 `colcon build` 一起进 `install/`，`$(find)` 即可（**不需** `~/lebai_ws` overlay）。`ur5_bringup/package.xml` 加 `lebai_lm3_support` / `lebai_driver` exec_depend。
 
 ## §2 SRDF（gripper group + TCP）
 
