@@ -24,11 +24,11 @@ from launch_ros.substitutions import FindPackageShare
 
 
 def _moveit_include(use_sim_time: str, launch_rviz: str = "true"):
-    """组合系统 ur_moveit.launch.py，固定 ur_type:=ur5。"""
+    """组合我们的 moveit.launch.py（ur_moveit.launch.py 的 fork，pilz 默认），固定 ur_type:=ur5。"""
     return IncludeLaunchDescription(
         AnyLaunchDescriptionSource(
             PathJoinSubstitution(
-                [FindPackageShare("ur_moveit_config"), "launch", "ur_moveit.launch.py"]
+                [FindPackageShare("ur5_bringup"), "launch", "moveit.launch.py"]
             )
         ),
         launch_arguments={
