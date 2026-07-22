@@ -90,6 +90,9 @@ def launch_setup(context, *args, **kwargs):
             PathJoinSubstitution([FindExecutable(name="xacro")]),
             " ",
             # Gripper xacro lives in ur5_bringup; UR config/kinematics still in ur_description.
+            # NOTE: 路径固定到 ur5_bringup，故 description_file launch arg（默认 ur.urdf.xacro）
+            # 在此后端下是有意 inert——传 description_file:=foo.xacro 会被静默忽略。
+            # description_package 仍 load-bearing（喂上面的 joint_limits/kinematics 等配置路径）。
             PathJoinSubstitution([FindPackageShare("ur5_bringup"), "urdf", "ur5_with_gripper.urdf.xacro"]),
             " ",
             "robot_ip:=xxx.yyy.zzz.www",
@@ -143,6 +146,9 @@ def launch_setup(context, *args, **kwargs):
             " ",
             PathJoinSubstitution(
                 # Gripper srdf lives in ur5_bringup; UR kinematics/rviz still in ur_moveit_config.
+                # NOTE: 路径固定到 ur5_bringup，故 moveit_config_file launch arg（默认
+                # ur.srdf.xacro）在此后端下是有意 inert——传 moveit_config_file:=bar.srdf.xacro
+                # 会被静默忽略（gripper srdf 路径写死在此）。
                 [FindPackageShare("ur5_bringup"), "srdf", "ur5_with_gripper.srdf.xacro"]
             ),
             " ",

@@ -51,6 +51,9 @@ if(NOT _ur_desc_result EQUAL 0)
     "Source ROS2 (tools/source_env.sh) before building ur5_bringup.")
 endif()
 set(_ur_desc_config_dir "${_ur_desc_prefix}/share/ur_description/config/ur5")
+# ⚠️ 这些是 ur_description 的拷贝（非符号链接，即使 --symlink-install 也是复制）：
+# ur_description 升级（如 apt 升级 ros-humble-ur-description）后，必须重新 colcon build
+# ur5_bringup 刷新这些拷贝，否则真机 ur_control 解析 URDF 时会静默用旧的限位/运动学。
 install(FILES
   "${_ur_desc_config_dir}/joint_limits.yaml"
   "${_ur_desc_config_dir}/physical_parameters.yaml"

@@ -127,6 +127,9 @@ def main():
                 )
                 break
             # 让出 CPU；MultiThreadedExecutor 在另一线程上 dispatch on_state。
+            # NOTE: 此重发节拍用 wall-clock time.sleep，而上面的 deadline / stamp 用
+            # node.get_clock().now()（use_sim_time:=true 下随仿真时钟）——两者口径不同，
+            # 但 0.1s 节拍下无实质影响，勿误以为两者都是仿真时间。
             time.sleep(CMD_REPUBLISH_PERIOD)
 
         result.position = state["pos"]
