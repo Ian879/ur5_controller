@@ -23,4 +23,11 @@ install(DIRECTORY urdf
   DESTINATION share/${PROJECT_NAME}
 )
 
+# SRDF (gripper-augmented) xacro; consumed by moveit.launch.py (Task 3) via
+# moveit_config_file := ur5_with_gripper.srdf.xacro
+install(DIRECTORY srdf
+  DESTINATION share/${PROJECT_NAME}
+  OPTIONAL
+)
+
 ament_package()

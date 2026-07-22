@@ -1,0 +1,52 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://ros.org/wiki/xacro" name="ur5">
+  <!--
+    SRDF for ur5 + Lebai gripper.
+    Includes the system ur_moveit SRDF (ur_manipulator group, virtual_joint,
+    disable_collisions for the arm) and appends the Lebai gripper block.
+    Group/joint/state names mirror lebai_lm3_moveit_config/config/lebai_lm3.srdf;
+    disable_collisions copied verbatim from that file (gripper-internal pairs only —
+    arm-internal pairs come from the included ur.srdf.xacro).
+  -->
+
+  <!-- system ur_moveit SRDF: ur_manipulator group + arm disable_collisions -->
+  <xacro:include filename="$(find ur_moveit_config)/srdf/ur.srdf.xacro"/>
+
+  <!-- ===== Lebai gripper (from lebai_lm3_moveit_config/config/lebai_lm3.srdf) ===== -->
+  <group name="gripper">
+    <joint name="gripper_r_joint1"/>
+  </group>
+  <end_effector name="gripper" parent_link="tool0" group="gripper" parent_group="ur_manipulator"/>
+  <group_state name="open" group="gripper">
+    <joint name="gripper_r_joint1" value="1.0471975512"/>
+  </group_state>
+  <group_state name="closed" group="gripper">
+    <joint name="gripper_r_joint1" value="0.0"/>
+  </group_state>
+
+  <!-- disable_collisions: copied verbatim from lebai_lm3.srdf (gripper-internal + tool0/gripper_base_link).
+       arm-internal pairs (base_link..tool0) are provided by the included ur.srdf.xacro, not duplicated here. -->
+  <disable_collisions link1="tool0" link2="gripper_base_link" reason="Adjacent"/>
+  <disable_collisions link1="gripper_base_link" link2="gripper_l_link1" reason="Never"/>
+  <disable_collisions link1="gripper_base_link" link2="gripper_l_link2" reason="Never"/>
+  <disable_collisions link1="gripper_base_link" link2="gripper_l_link_finger" reason="Never"/>
+  <disable_collisions link1="gripper_base_link" link2="gripper_r_link1" reason="Never"/>
+  <disable_collisions link1="gripper_base_link" link2="gripper_r_link2" reason="Never"/>
+  <disable_collisions link1="gripper_base_link" link2="gripper_r_link_finger" reason="Never"/>
+  <disable_collisions link1="gripper_l_link1" link2="gripper_l_link2" reason="Never"/>
+  <disable_collisions link1="gripper_l_link1" link2="gripper_l_link_finger" reason="Never"/>
+  <disable_collisions link1="gripper_l_link1" link2="gripper_r_link1" reason="Never"/>
+  <disable_collisions link1="gripper_l_link1" link2="gripper_r_link2" reason="Never"/>
+  <disable_collisions link1="gripper_l_link1" link2="gripper_r_link_finger" reason="Never"/>
+  <disable_collisions link1="gripper_l_link2" link2="gripper_l_link_finger" reason="Never"/>
+  <disable_collisions link1="gripper_l_link2" link2="gripper_r_link1" reason="Never"/>
+  <disable_collisions link1="gripper_l_link2" link2="gripper_r_link2" reason="Never"/>
+  <disable_collisions link1="gripper_l_link2" link2="gripper_r_link_finger" reason="Never"/>
+  <disable_collisions link1="gripper_l_link_finger" link2="gripper_r_link1" reason="Never"/>
+  <disable_collisions link1="gripper_l_link_finger" link2="gripper_r_link2" reason="Never"/>
+  <disable_collisions link1="gripper_l_link_finger" link2="gripper_r_link_finger" reason="Never"/>
+  <disable_collisions link1="gripper_r_link1" link2="gripper_r_link2" reason="Never"/>
+  <disable_collisions link1="gripper_r_link1" link2="gripper_r_link_finger" reason="Never"/>
+  <disable_collisions link1="gripper_r_link2" link2="gripper_r_link_finger" reason="Never"/>
+
+</robot>
