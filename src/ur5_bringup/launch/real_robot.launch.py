@@ -46,6 +46,15 @@ def _launch_with_real(context, *args, **kwargs):
                 # 真机用 scaled（按速度缩放，更安全）
                 "initial_joint_controller": "scaled_joint_trajectory_controller",
                 "launch_rviz": "false",
+                # 让真机后端 robot_state_publisher 加载带 gripper 的 URDF：
+                #   description_package:=ur5_bringup → ur_control 的 xacro 路径
+                #   解析为 ur5_bringup/urdf/ur5_with_gripper.urdf.xacro。
+                #   ur_control 的 joint_limit_params/physical_params/visual_params/
+                #   kinematics_params_file 均为 FindPackageShare(description_package)/
+                #   config/ur5/*.yaml 的 PathJoinSubstitution（不可通过 launch arg 覆盖），
+                #   故 CMakeLists 把 ur_description 的 ur5 config 拷进 ur5_bringup share。
+                "description_package": "ur5_bringup",
+                "description_file": "ur5_with_gripper.urdf.xacro",
             }.items(),
         )
     ]

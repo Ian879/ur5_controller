@@ -70,6 +70,21 @@ def _setup(context, *args, **kwargs):
                 "  方式2：命令行临时覆盖  robot_ip:=192.168.1.102"
             )
         actions.append(_bringup_include("real_robot.launch.py", {"robot_ip": robot_ip}))
+        # real 后端：Lebai 夹爪串口驱动，提供 gripper 服务（set_position 等）。
+        # 端口默认 /dev/ttyUSB0，可经 gripper_port launch arg 覆盖。
+        # NOTE：serial_gripper 提供 services（gripper/set_position...）而非
+        #   control_msgs/GripperCommand action；MoveIt GripperCommand 句柄要真正
+        #   命令该夹爪需另起桥（ros2_control gripper controller 或 action server），
+        #   见 task-4 report 的 concerns。
+        actions.append(
+            Node(
+                package="lebai_driver",
+                executable="serial_gripper",
+                name="lebai_serial_gripper",
+                parameters=[{"port_name": LaunchConfiguration("gripper_port")}],
+                output="screen",
+            )
+        )
         actions.append(_moveit_include("false", launch_rviz))
 
     elif backend == "isaac":
@@ -125,6 +140,11 @@ def generate_launch_description():
                 description="真机 IP。默认读环境变量 UR5_HOST（在 tools/robot_ip.sh 设置）。",
             ),
             DeclareLaunchArgument("launch_rviz", default_value="true"),
+            DeclareLaunchArgument(
+                "gripper_port",
+                default_value="/dev/ttyUSB0",
+                description="Lebai 串口夹爪的设备节点（仅 backend:=real 用）。",
+            ),
             OpaqueFunction(function=_setup),
         ]
     )

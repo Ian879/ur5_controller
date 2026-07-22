@@ -30,4 +30,33 @@ install(DIRECTORY srdf
   OPTIONAL
 )
 
+# Provide ur_description's ur5 config yamls so the real backend's
+# ur_control.launch.py can resolve its non-overridable config
+# PathJoinSubstitutions when description_package:=ur5_bringup:
+#   FindPackageShare(ur5_bringup)/config/ur5/{joint_limits,physical_parameters,
+#   visual_parameters,default_kinematics}.yaml
+# (ur_control passes joint_limit_params/physical_params/visual_params as
+#  local PathJoinSubstitutions keyed off description_package — NOT overridable
+#  launch args. kinematics_params_file defaults to the same pattern. Copying all
+#  four makes ur5_with_gripper.urdf.xacro resolve under ur5_bringup.)
+execute_process(
+  COMMAND ros2 pkg prefix ur_description
+  OUTPUT_VARIABLE _ur_desc_prefix
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+  RESULT_VARIABLE _ur_desc_result
+)
+if(NOT _ur_desc_result EQUAL 0)
+  message(FATAL_ERROR
+    "Cannot locate ur_description (ros2 pkg prefix failed). "
+    "Source ROS2 (tools/source_env.sh) before building ur5_bringup.")
+endif()
+set(_ur_desc_config_dir "${_ur_desc_prefix}/share/ur_description/config/ur5")
+install(FILES
+  "${_ur_desc_config_dir}/joint_limits.yaml"
+  "${_ur_desc_config_dir}/physical_parameters.yaml"
+  "${_ur_desc_config_dir}/visual_parameters.yaml"
+  "${_ur_desc_config_dir}/default_kinematics.yaml"
+  DESTINATION share/${PROJECT_NAME}/config/ur5
+)
+
 ament_package()
