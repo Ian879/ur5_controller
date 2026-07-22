@@ -67,6 +67,16 @@ class UR5MoveIt:
             use_move_group_action=True,
         )
 
+        # pilz 比 OMPL 挑剔，两个必设项（pymoveit2 默认值 pilz 都不接受）：
+        # (1) planner_id：pymoveit2 默认 ""，pilz 报 "No ContextLoader for planner_id '' found"。
+        #     默认 PTP（关节空间最短直路，不再乱绕）；末端走直线时设 "LIN"（SP3 抓取接近用）。
+        # (2) max_velocity/accel（pymoveit2 属性名，写 request 的 *_scaling_factor）：
+        #     pymoveit2 默认 0.0，pilz 报 "Velocity scaling not in range [0.0001, 1], value: 0"。
+        #     设 0.5（安全；要更快调到 1.0）。pipeline_id 留空 → move_group 用默认 pilz。
+        self._moveit.planner_id = "PTP"
+        self._moveit.max_velocity = 0.5
+        self._moveit.max_acceleration = 0.5
+
         # 后台 spin：pymoveit2 的 action client 需要持续 spin 才能收结果
         self._executor = MultiThreadedExecutor()
         self._executor.add_node(self.node)
