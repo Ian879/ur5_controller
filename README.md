@@ -45,7 +45,10 @@ ur5_controller/                 # = colcon workspace 根
 │   │       ├── world_sync_node.py   # 读 scene_collisions.json → compound CollisionObject → PlanningScene
 │   │       └── demos/               # demo_plan_execute / demo_collision / sync_scene
 │   ├── isaac_moveit/           # （vendor）官方 isaac_moveit 包（Franka MoveIt 参考配置）
-│   └── moveit_resources/       # （vendor）panda moveit 配置（isaac_moveit 依赖）
+│   ├── moveit_resources/       # （vendor）panda moveit 配置（isaac_moveit 依赖）
+│   └── third_party/            # （git submodule）第三方 ROS 包，随本仓库一起 build
+│       ├── OrbbecSDK_ROS2/     #   Orbbec Gemini 2 相机驱动（branch v2-main）
+│       └── lebai-ros-sdk/     #   Lebai 夹爪驱动 + URDF（branch humble-dev）
 ├── isaac_scripts/
 │   ├── ur5_isaac_bridge.py     # ★ Isaac 桥：加载 ~/Desktop/scene.usd + ROS2 bridge（关节/clock/相机）
 │   ├── export_scene_collisions.py  # 读 scene.usd 所有 collider → ~/Desktop/scene_collisions.json（按父分组）
@@ -67,12 +70,19 @@ sudo apt update && sudo apt install -y \
 
 ## 构建
 
+> **首次 clone 后**先拉 submodule（含 Orbbec 相机 + Lebai 夹爪的第三方 ROS 包）：
+> ```bash
+> git submodule update --init --recursive
+> ```
+> 之后 `source tools/source_env.sh` 就是**唯一环境入口**（humble + 本仓库 install，不再需要 `~/ros2_ws` / `~/lebai_ws` overlay）。
+
 ```bash
 cd /home/gds/projects/shengzhi/ur5_controller
-source tools/source_env.sh
-colcon build --symlink-install
-source install/setup.bash
+source tools/source_env.sh          # 退出 conda + source humble + 本仓库 install
+colcon build --symlink-install       # 建所有包（ur5_bringup/ur5_motion + orbbec + lebai + vendor）
+source tools/source_env.sh          # 重 source 拿到新 build 的包（含 orbbec/lebai）
 ```
+> Orbbec 的 liborbbec 首次编译较重；快速迭代可 `colcon build --packages-skip orbbec_camera orbbec_camera_msgs orbbec_description`。
 
 ## 快速启动
 
@@ -216,6 +226,7 @@ cd ~/isaacsim && source setup_ros_env.sh
 cd ~/isaacsim && source setup_ros_env.sh
 ./python.sh /home/gds/projects/shengzhi/ur5_controller/isaac_scripts/ur5_isaac_bridge.py \
   --stream --robot_prim /World/ur5
+# ros2 topic hz /isaac_joint_states
 
 # 终端 B：PC 运动栈（world_sync_node 自动把碰撞体加进 MoveIt）
 cd /home/gds/projects/shengzhi/ur5_controller
