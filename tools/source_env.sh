@@ -27,17 +27,10 @@ else
     echo "[source_env.sh] 警告: /opt/ros/humble/setup.bash 不存在" >&2
 fi
 
-# 4.5) ★ Orbbec SDK overlay（~/ros2_ws，SP2 相机集成）★
-#    Gemini 2 的 orbbec_camera 包在独立工作空间，按 colcon overlay 依赖顺序
-#    （humble underlay 之后、本仓库 overlay 之前）source。不存在则跳过。
+# 4.5) Orbbec SDK + Lebai gripper 现作为 submodule 在 src/third_party/，随本仓库
+#      colcon build 一起进 install/（不再需要独立 ~/ros2_ws / ~/lebai_ws overlay）。
 THIS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$THIS_DIR/.." && pwd)"
-ORBBEC_WS="${ORBBEC_WS:-$HOME/ros2_ws}"
-if [ -f "$ORBBEC_WS/install/setup.bash" ]; then
-    source "$ORBBEC_WS/install/setup.bash"
-else
-    echo "[source_env.sh] 提示: $ORBBEC_WS/install/setup.bash 不存在（未装 Orbbec 则忽略）" >&2
-fi
 
 # 5) RMW 与 Isaac Sim 的 setup_ros_env.sh 保持一致（默认即此值，显式设置以防被改）
 export RMW_IMPLEMENTATION="${RMW_IMPLEMENTATION:-rmw_fastrtps_cpp}"
