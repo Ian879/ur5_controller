@@ -1,0 +1,53 @@
+# 合并的关节限位（pilz 硬前置：velocity + acceleration 都要有）。
+# velocity / position 来自 ur_description/config/ur5/joint_limits.yaml（180°/s、±360°），
+# acceleration 来自 ur_moveit_config/config/joint_limits.yaml（5.0 rad/s^2）。
+# 加载为 move_group 的 robot_description_planning（见 moveit.launch.py）。
+joint_limits:
+  shoulder_pan_joint:
+    has_position_limits: true
+    min_position: -6.2832
+    max_position: 6.2832
+    has_velocity_limits: true
+    max_velocity: 3.14159
+    has_acceleration_limits: true
+    max_acceleration: 5.0
+  shoulder_lift_joint:
+    has_position_limits: true
+    min_position: -6.2832
+    max_position: 6.2832
+    has_velocity_limits: true
+    max_velocity: 3.14159
+    has_acceleration_limits: true
+    max_acceleration: 5.0
+  elbow_joint:
+    has_position_limits: true
+    min_position: -6.2832
+    max_position: 6.2832
+    has_velocity_limits: true
+    max_velocity: 3.14159
+    has_acceleration_limits: true
+    max_acceleration: 5.0
+  wrist_1_joint:
+    has_position_limits: true
+    min_position: -6.2832
+    max_position: 6.2832
+    has_velocity_limits: true
+    max_velocity: 3.14159
+    has_acceleration_limits: true
+    max_acceleration: 5.0
+  wrist_2_joint:
+    has_position_limits: true
+    min_position: -6.2832
+    max_position: 6.2832
+    has_velocity_limits: true
+    max_velocity: 3.14159
+    has_acceleration_limits: true
+    max_acceleration: 5.0
+  wrist_3_joint:
+    has_position_limits: true
+    min_position: -6.2832
+    max_position: 6.2832
+    has_velocity_limits: true
+    max_velocity: 3.14159
+    has_acceleration_limits: true
+    max_acceleration: 5.0
