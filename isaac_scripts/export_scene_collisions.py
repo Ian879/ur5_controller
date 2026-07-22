@@ -10,10 +10,18 @@
 输出: ~/Desktop/scene_collisions.json（groups 格式，每个 group = 一个 compound 对象）
 """
 
+import argparse
 import json
 import os
 import sys
 from collections import defaultdict
+
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("--scene", default=os.path.expanduser("~/Desktop/scene.usd"),
+                    help="USD 场景路径（默认 ~/Desktop/scene.usd）")
+parser.add_argument("--robot_prim", default="/World/ur5",
+                    help="机器人 prim 前缀；其下挂载件不当静态障碍（与桥 --robot_prim 默认一致）")
+args = parser.parse_args()
 
 from isaacsim import SimulationApp
 
@@ -21,7 +29,16 @@ app = SimulationApp({"headless": True})
 
 from pxr import Usd, UsdGeom, UsdPhysics, Gf
 
-SCENE = os.path.expanduser("~/Desktop/scene.usd")
+# 机器人挂载 prim 叶名排除名单（腕上 Gemini2 相机机身各件；gripper 已被
+# art_roots 排除，"gripper" 子串兜底）。叶名 = path.split("/")[-1]，
+# 源自 ~/Desktop/scene.usd 实测（brief 的名单漏了 foot_*/camera_left/right，此处补全）。
+EXCLUDE_NAMES = (
+    "gemini2_body", "back_cover", "solid",
+    "camera_rgb", "camera_ldm", "camera_left", "camera_right",
+    "foot_left", "foot_right", "gripper_abs_stl",
+)
+
+SCENE = args.scene
 OUT = os.path.expanduser("~/Desktop/scene_collisions.json")
 
 if not os.path.isfile(SCENE):
@@ -56,6 +73,14 @@ for prim in stage.Traverse():
         continue
     path = str(prim.GetPath())
     if any(path.startswith(a) for a in art_roots):
+        continue
+
+    # 排除机器人挂载 prim（腕上相机、gripper 等机器人挂载件，不当静态障碍）。
+    # ROBOT_PRIM 与桥 --robot_prim 默认一致；夹爪碰撞来自 URDF，相机碰撞暂不进 URDF。
+    path_name = path.split("/")[-1]
+    if (path.startswith(args.robot_prim + "/")
+            or path_name in EXCLUDE_NAMES
+            or "gripper" in path.lower()):
         continue
 
     # 世界 AABB
