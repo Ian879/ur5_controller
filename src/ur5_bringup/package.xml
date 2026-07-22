@@ -19,6 +19,8 @@
   <exec_depend>controller_manager</exec_depend>
   <exec_depend>joint_trajectory_controller</exec_depend>
   <exec_depend>pilz_industrial_motion_planner</exec_depend>
+  <exec_depend>lebai_lm3_support</exec_depend>
+  <exec_depend>lebai_driver</exec_depend>
   <exec_depend>joint_state_controller</exec_depend>
 
   <test_depend>ament_lint_auto</test_depend>
