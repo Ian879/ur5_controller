@@ -66,18 +66,21 @@ def main():
         try:
             i = msg.name.index(DRIVEN_JOINT)
             state["pos"] = float(msg.position[i])
-        except ValueError:
-            # 桥发的状态里没有我们要的关节名——忽略这一帧（桥可能还没 attach 夹爪）。
+        except (ValueError, IndexError):
+            # 桥发的状态里没有我们要的关节名，或 position 数组长度不足——忽略
+            # 这一帧（桥可能还没 attach 夹爪，或状态帧残缺）。
             pass
 
     node.create_subscription(
         JointState, STATE_TOPIC, on_state, 10, callback_group=cb_group
     )
 
-    def goal_callback(goal_handle: ServerGoalHandle):
+    def goal_callback(goal_request: GripperCommand.Goal):
         # 总是接受（gripper 只有开/合两个方向，无复杂规划拒绝逻辑）。
+        # 注意 rclpy 的 goal_callback 直接收到 Goal 消息（非 ServerGoalHandle），
+        # 故访问路径是 goal_request.command.position，不是 .request.command.*。
         node.get_logger().info(
-            f"goal accepted: position={goal_handle.request.position:.4f}"
+            f"goal accepted: position={goal_request.command.position:.4f}"
         )
         return GoalResponse.ACCEPT
 
@@ -86,9 +89,9 @@ def main():
         return rclpy.action.CancelResponse.ACCEPT
 
     def execute_callback(goal_handle: ServerGoalHandle):
-        target = max(0.0, min(MAX_POS, float(goal_handle.request.position)))
+        target = max(0.0, min(MAX_POS, float(goal_handle.request.command.position)))
         node.get_logger().info(
-            f"execute: target={target:.4f} (clamped from {goal_handle.request.position:.4f})"
+            f"execute: target={target:.4f} (clamped from {goal_handle.request.command.position:.4f})"
         )
 
         js = JointState()
@@ -112,7 +115,6 @@ def main():
             pub.publish(js)
 
             feedback.position = state["pos"]
-            feedback.current_value = state["pos"]
             goal_handle.publish_feedback(feedback)
 
             if abs(state["pos"] - target) < TOL:
