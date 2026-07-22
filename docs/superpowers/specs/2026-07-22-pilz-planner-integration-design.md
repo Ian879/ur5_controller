@@ -40,6 +40,19 @@ MoveIt 默认用 OMPL（`RRTConnect`），采样型 RRT，目标=尽快找一条
 
 ## §2 多 pipeline 配置（核心）
 
+> ⚠️ **实现期修正（2026-07-22）**：下面代码块里的**嵌套 dict 形式是错的**——Humble move_group 把
+> `planning_pipelines` 当**名字列表**读，嵌套 dict 会被拒、回退到 CHOMP、pilz 不加载。实现采用的
+> 正确形式（已验证，运行时 pilz 默认加载）是 `moveit_configs_builder.py:469-477` 的 canonical 写法：
+> ```python
+> planning_pipelines_config = {
+>     "planning_pipelines": ["ompl", "pilz"],     # 名字列表（非 dict）
+>     "default_planning_pipeline": "pilz",
+>     "ompl": { ... },   # 每个 pipeline 的参数作为与 planning_pipelines 平级的顶层 key
+>     "pilz": { ... },
+> }
+> ```
+> 下面代码块保留作历史记录，以本修正为准。
+
 替换 ur_moveit 的 `ompl_planning_pipeline_config`（单 pipeline）为多 pipeline：
 
 ```python

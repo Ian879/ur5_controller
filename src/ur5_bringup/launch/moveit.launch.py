@@ -174,7 +174,7 @@ def launch_setup(context, *args, **kwargs):
     # 结构遵循 MoveIt2 官方 moveit_configs_builder.planning_pipelines()（Humble）：
     #   planning_pipelines = [pipeline 名字列表]；每个 pipeline 的参数作为与 planning_pipelines
     #   平级的顶层 key（ompl / pilz），而非嵌套在 planning_pipelines map 里。
-    #   参考 moveit_configs_utils/moveit_configs_builder.py:463-473。
+    #   参考 moveit_configs_utils/moveit_configs_builder.py:469-477。
     ompl_planning_yaml = load_yaml("ur_moveit_config", "config/ompl_planning.yaml")
     planning_pipelines_config = {
         "planning_pipelines": ["ompl", "pilz"],
@@ -189,6 +189,8 @@ def launch_setup(context, *args, **kwargs):
             "planning_plugin": "pilz_industrial_motion_planner/CommandPlanner",
             "request_adapters": "default_planner_request_adapters/FixWorkspaceBounds default_planner_request_adapters/FixStartStateBounds default_planner_request_adapters/FixStartStateCollision default_planner_request_adapters/FixStartStatePathConstraints",
             "default_planner_config": "PTP",
+            # NOTE: 此处 capabilities 是 no-op——move_group 在节点级读 capabilities（非 pipeline 级），
+            # 所以 sequence/blend 规划当前未启用。PTP/LIN 核心不受影响。SP3 若需 sequence 再挪到节点级。
             "capabilities": "pilz_industrial_motion_planner/MoveGroupSequenceAction pilz_industrial_motion_planner/MoveGroupSequenceService",
             "start_state_max_bounds_error": 0.1,
         },
