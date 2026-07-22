@@ -1,0 +1,8 @@
+[submodule "src/third_party/OrbbecSDK_ROS2"]
+	path = src/third_party/OrbbecSDK_ROS2
+	url = https://github.com/orbbec/OrbbecSDK_ROS2.git
+	branch = v2-main
+[submodule "src/third_party/lebai-ros-sdk"]
+	path = src/third_party/lebai-ros-sdk
+	url = https://github.com/lebai-robotics/lebai-ros-sdk.git
+	branch = humble-dev
