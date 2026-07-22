@@ -50,6 +50,14 @@
   <!-- ===== 1) UR kinematic chain: links + joints ONLY (no default ros2_control) ===== -->
   <xacro:include filename="$(find ur_description)/urdf/ur_macro.xacro"/>
 
+  <!-- Lebai gripper macro (lebai_lm3_support, in-tree submodule) — mirrors Task 1
+       (ur5_with_gripper.urdf.xacro). Adds the gripper links/joints to the kinematic
+       chain so MoveIt's gripper group + the isaac bridge's gripper articulation
+       share the same URDF description. The isaac ros2_control macro below does NOT
+       cover the gripper (it only emits a <ros2_control> for the 6 arm joints); the
+       gripper is driven out-of-band via the isaac_gripper_action bridge node. -->
+  <xacro:include filename="$(find lebai_lm3_support)/urdf/gripper_macro.xacro"/>
+
   <xacro:ur_robot
     name="$(arg name)"
     tf_prefix="$(arg tf_prefix)"
@@ -66,6 +74,17 @@
   >
     <origin xyz="0 0 0" rpy="0 0 0"/>
   </xacro:ur_robot>
+
+  <!-- Lebai gripper: prefix mirrors the arm's tf_prefix (empty by default). -->
+  <xacro:lebai_gripper prefix="$(arg tf_prefix)"/>
+
+  <!-- Mount the gripper to the arm's tool0 (LM3 范式：identity origin；
+       若物理有转接件 offset，verify 时调). Mirrors Task 1. -->
+  <joint name="tool0_to_gripper_base" type="fixed">
+    <parent link="$(arg tf_prefix)tool0"/>
+    <child link="$(arg tf_prefix)gripper_base_link"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </joint>
 
   <!-- ===== 2) isaac ros2_control (TopicBasedSystem) ===== -->
   <xacro:include filename="$(find ur5_bringup)/urdf/ur5_isaac.ros2_control.xacro"/>

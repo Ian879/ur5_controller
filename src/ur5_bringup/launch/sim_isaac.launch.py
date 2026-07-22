@@ -175,6 +175,18 @@ def generate_launch_description():
         ],
     )
 
+    # ===== isaac_gripper_action 节点（Task 5）=====
+    # 暴露 control_msgs/GripperCommand action（lebai_gripper_controller/gripper_cmd），
+    # 中转 MoveIt 的 GripperCommand 句柄 → /isaac_gripper_joint_commands，读
+    # /isaac_gripper_joint_states 判到位。纯 rclpy 节点，不需要 Isaac 桥在场也能起
+    # （只是 goal 会一直等到状态有数据；自愈 spawner 没必要——它不依赖 TopicBasedSystem）。
+    isaac_gripper_action = Node(
+        package="ur5_motion",
+        executable="isaac_gripper_action",
+        name="isaac_gripper_action",
+        output="screen",
+    )
+
     return LaunchDescription(
         [
             use_sim_time_arg,
@@ -184,5 +196,6 @@ def generate_launch_description():
             world_to_base_tf,
             joint_state_broadcaster_spawner,
             joint_trajectory_controller_spawner,
+            isaac_gripper_action,
         ]
     )

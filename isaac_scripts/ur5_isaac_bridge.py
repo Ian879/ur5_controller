@@ -40,6 +40,15 @@ Run with Isaac's bundled interpreter::
 The topic names ``isaac_joint_states`` / ``isaac_joint_commands`` are REQUIRED:
 they are the names T5/T6's TopicBasedSystem reads/writes (matching the official
 Franka ``isaac_moveit`` wiring). Do not change them.
+
+The gripper articulation is wired onto the SAME ActionGraph with G-suffixed
+nodes (ReadJointStateG/PublishJointStateG/SubscribeJointStateG/ArticulationControllerG),
+publishing ``/isaac_gripper_joint_states`` and subscribing
+``/isaac_gripper_joint_commands`` (JointState). The gripper prim defaults to
+``/World/gripper_abs_stl/Geometry`` (verified ArticulationRootAPI location in
+~/Desktop/scene.usd); override with ``--gripper_prim``. The ``isaac_gripper_action``
+rclpy node (started by sim_isaac.launch.py) bridges MoveIt's GripperCommand handle
+``lebai_gripper_controller/gripper_cmd`` onto these two topics.
 """
 
 import argparse
@@ -84,6 +93,20 @@ parser.add_argument(
     default=None,
     help="Wrist camera prim path. If not given, defaults to "
     "<robot_prim>/wrist_3_link/flange/wrist_camera (auto-derived).",
+)
+parser.add_argument(
+    "--gripper_prim",
+    default="/World/gripper_abs_stl/Geometry",
+    help="Gripper articulation prim (prim with ArticulationRootAPI for the Lebai "
+    "gripper). Default mirrors ~/Desktop/scene.usd, where the gripper's "
+    "ArticulationRootAPI lives on the Scope /World/gripper_abs_stl/Geometry "
+    "(NOT on /World/gripper_abs_stl — the joints live under the sibling "
+    ".../Physics scope and are resolved via body-link refs). Used for the "
+    "gripper ArticulationController.robotPath AND ReadJointState.prim. The "
+    "gripper is driven by /isaac_gripper_joint_commands (JointState) and its "
+    "state published on /isaac_gripper_joint_states; isaac_gripper_action "
+    "translates the MoveIt GripperCommand handle. If your scene's gripper lives "
+    "elsewhere, override here.",
 )
 parser.add_argument(
     "--headless",
@@ -175,6 +198,7 @@ carb.log_warn(
     f"    robot_prim={args.robot_prim}\n"
     f"    articulation_prim={args.articulation_prim}  (ArticulationController 用这个)\n"
     f"    camera_prim={args.camera_prim}\n"
+    f"    gripper_prim={args.gripper_prim}  (gripper ArticulationController 用这个)\n"
     f"    headless={args.headless} stream={args.stream}"
 )
 
@@ -204,6 +228,7 @@ try:
         (args.articulation_prim, "articulation"),
         (args.camera_prim, "camera"),
         (args.robot_prim + "/base_link", "base_link"),
+        (args.gripper_prim, "gripper"),
     ]:
         _prim = stage.GetPrimAtPath(_path)
         if _prim.IsValid():
@@ -223,6 +248,7 @@ except Exception as _e:  # noqa: BLE001
 # the OG nodes emit "Failed to find articulation" / "no DOFs found".
 _art_ok = bool(stage.GetPrimAtPath(args.articulation_prim).IsValid())
 _camera_ok = bool(stage.GetPrimAtPath(args.camera_prim).IsValid())
+_gripper_ok = bool(stage.GetPrimAtPath(args.gripper_prim).IsValid())
 if not _art_ok:
     carb.log_error(
         f"\n*** ARTICULATION PRIM '{args.articulation_prim}' 在场景 '{args.usd}' 里找不到 ***\n"
@@ -243,6 +269,14 @@ if not _camera_ok:
     carb.log_warn(
         f"Camera prim '{args.camera_prim}' is not valid; camera RGBD publishing "
         "will be skipped (joint/clock bridge still runs)."
+    )
+if not _gripper_ok:
+    carb.log_warn(
+        f"\n[ur5_isaac_bridge] GRIPPER prim '{args.gripper_prim}' 在场景里找不到 "
+        f"(type={stage.GetPrimAtPath(args.gripper_prim).GetTypeName()}).\n"
+        "    夹爪 articulation 读写图会建但运行时报 'Failed to find articulation'.\n"
+        "    用 --gripper_prim <你的夹爪 prim> 覆盖（ArticulationRootAPI 所在 prim）.\n"
+        "    若场景里没有夹爪 articulation，忽略本警告——arm/clock/camera 照常跑."
     )
 
 # --- 清理残留 ActionGraph（之前的桥运行可能把图存进了 scene.usd，robotPath 是老的）---
@@ -271,6 +305,16 @@ try:
                 ("SubscribeJointState", "isaacsim.ros2.bridge.ROS2SubscribeJointState"),
                 ("ArticulationController", "isaacsim.core.nodes.IsaacArticulationController"),
                 ("PublishClock", "isaacsim.ros2.bridge.ROS2PublishClock"),
+                # --- gripper articulation read/write (Task 5) ---
+                # Mirror the UR5 joint graph (ReadJointState/PublishJointState/
+                # SubscribeJointState/ArticulationController) with G-suffixed node
+                # names, the gripper articulation prim, and the gripper topic names.
+                # Node types are IDENTICAL to the UR5 ones above (verified against the
+                # installed isaacsim.ros2.bridge). Only the prim/topic differ.
+                ("ReadJointStateG", "isaacsim.sensors.physics.IsaacReadJointState"),
+                ("PublishJointStateG", "isaacsim.ros2.bridge.ROS2PublishJointState"),
+                ("SubscribeJointStateG", "isaacsim.ros2.bridge.ROS2SubscribeJointState"),
+                ("ArticulationControllerG", "isaacsim.core.nodes.IsaacArticulationController"),
             ],
             og.Controller.Keys.CONNECT: [
                 ("OnPlaybackTick.outputs:tick", "ReadJointState.inputs:execIn"),
@@ -299,6 +343,33 @@ try:
                     "ArticulationController.inputs:velocityCommand",
                 ),
                 ("SubscribeJointState.outputs:effortCommand", "ArticulationController.inputs:effortCommand"),
+                # --- gripper articulation graph wiring (Task 5) ---
+                # Mirror the UR5 wiring above, node names G-suffixed. Same OnPlaybackTick
+                # tick + same ROS2Context drive the gripper graph in parallel. The
+                # ArticulationControllerG targets the gripper articulation (see SET_VALUES).
+                ("OnPlaybackTick.outputs:tick", "ReadJointStateG.inputs:execIn"),
+                ("ReadJointStateG.outputs:execOut", "PublishJointStateG.inputs:execIn"),
+                ("ReadJointStateG.outputs:jointNames", "PublishJointStateG.inputs:jointNames"),
+                ("ReadJointStateG.outputs:jointPositions", "PublishJointStateG.inputs:jointPositions"),
+                ("ReadJointStateG.outputs:jointVelocities", "PublishJointStateG.inputs:jointVelocities"),
+                ("ReadJointStateG.outputs:jointEfforts", "PublishJointStateG.inputs:jointEfforts"),
+                ("ReadJointStateG.outputs:jointDofTypes", "PublishJointStateG.inputs:jointDofTypes"),
+                ("ReadJointStateG.outputs:stageMetersPerUnit", "PublishJointStateG.inputs:stageMetersPerUnit"),
+                ("ReadJointStateG.outputs:sensorTime", "PublishJointStateG.inputs:sensorTime"),
+                ("OnPlaybackTick.outputs:tick", "SubscribeJointStateG.inputs:execIn"),
+                ("OnPlaybackTick.outputs:tick", "ArticulationControllerG.inputs:execIn"),
+                ("Context.outputs:context", "PublishJointStateG.inputs:context"),
+                ("Context.outputs:context", "SubscribeJointStateG.inputs:context"),
+                ("SubscribeJointStateG.outputs:jointNames", "ArticulationControllerG.inputs:jointNames"),
+                (
+                    "SubscribeJointStateG.outputs:positionCommand",
+                    "ArticulationControllerG.inputs:positionCommand",
+                ),
+                (
+                    "SubscribeJointStateG.outputs:velocityCommand",
+                    "ArticulationControllerG.inputs:velocityCommand",
+                ),
+                ("SubscribeJointStateG.outputs:effortCommand", "ArticulationControllerG.inputs:effortCommand"),
             ],
             og.Controller.Keys.SET_VALUES: [
                 # Point the articulation controller + joint reader at the UR5
@@ -312,6 +383,23 @@ try:
                 # REQUIRED topic names — match T5/T6 TopicBasedSystem + official moveit.py.
                 ("PublishJointState.inputs:topicName", "isaac_joint_states"),
                 ("SubscribeJointState.inputs:topicName", "isaac_joint_commands"),
+                # --- gripper articulation (Task 5) ---
+                # Point the gripper ArticulationController + ReadJointState at the
+                # gripper articulation root. Verified against ~/Desktop/scene.usd:
+                # ArticulationRootAPI lives on the Scope /World/gripper_abs_stl/Geometry
+                # (the joints live under the sibling /World/gripper_abs_stl/Physics/*
+                # scope and are resolved via body-link refs). The driven joint name
+                # is gripper_r_joint1 (prim leaf; physics:jointName is None so Isaac
+                # uses the leaf) — matches the URDF, so isaac_gripper_action needs no
+                # joint-name mapping.
+                # NOTE: robotPath takes a string prim path; ReadJointState.prim takes
+                # a LIST of usdrt.Sdf.Path — same asymmetry as the UR5 graph above.
+                ("ArticulationControllerG.inputs:robotPath", args.gripper_prim),
+                ("ReadJointStateG.inputs:prim", [usdrt.Sdf.Path(args.gripper_prim)]),
+                # Gripper topics — distinct from the arm's isaac_joint_* topics.
+                # isaac_gripper_action writes commands here & reads states here.
+                ("PublishJointStateG.inputs:topicName", "isaac_gripper_joint_states"),
+                ("SubscribeJointStateG.inputs:topicName", "isaac_gripper_joint_commands"),
             ],
         },
     )
