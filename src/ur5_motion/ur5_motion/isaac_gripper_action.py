@@ -75,6 +75,23 @@ def main():
         JointState, STATE_TOPIC, on_state, 10, callback_group=cb_group
     )
 
+    # 把 gripper_r_joint1 状态转发到 /joint_states，让 MoveIt PlanningSceneMonitor
+    # 不再报 "Missing gripper_r_joint1"。⚠️ 不能把 gripper_r_joint1 放进 ros2_control
+    # ——那样 TopicBasedSystem 会把它塞进 /isaac_joint_commands 的 name 列表却不带
+    # command 值，造成 name/position 长度不匹配 → 桥收到畸形消息不驱动 → 手臂不动。
+    # 故在此独立发到 /joint_states（与 joint_state_broadcaster 的 6 arm 各发各的，
+    # MoveIt/RSP 按名合并）。mimic 关节由 RSP 按 URDF <mimic> 自动派生，无需发。
+    joint_states_pub = node.create_publisher(JointState, "/joint_states", 10)
+
+    def publish_gripper_to_joint_states():
+        msg = JointState()
+        msg.header.stamp = node.get_clock().now().to_msg()
+        msg.name = [DRIVEN_JOINT]
+        msg.position = [state["pos"]]
+        joint_states_pub.publish(msg)
+
+    node.create_timer(0.05, publish_gripper_to_joint_states, callback_group=cb_group)
+
     def goal_callback(goal_request: GripperCommand.Goal):
         # 总是接受（gripper 只有开/合两个方向，无复杂规划拒绝逻辑）。
         # 注意 rclpy 的 goal_callback 直接收到 Goal 消息（非 ServerGoalHandle），

@@ -37,6 +37,19 @@
   <joint name="tool0_to_gripper_base" type="fixed">
     <parent link="$(arg prefix)tool0"/>
     <child link="$(arg prefix)gripper_base_link"/>
-    <origin xyz="0 0 0" rpy="0 0 0"/>
+    <!-- 转接环 offset：沿 tool0 Z 把夹爪 base 撑离 flange（实测场景 gripper_base 相对
+         wrist_3 沿工具轴 +0.01267m，无转角）。先按场景值试，不够再调。 -->
+    <origin xyz="0 0 0.01267" rpy="0 0 0"/>
+  </joint>
+
+  <!-- 固定 TCP 帧（与 gripper_tip 共位），供 IK / RViz 目标交互球定位。
+       tool0→gripper_tip 在任意指角下为纯 Z 平移（3 个 mimic 关节净转角 θ−2θ+θ=0）：
+       mount(0.01267) + 0.1056 + 0.0265 + 0.0265 = 0.17127 m。固定 joint=0 DOF，
+       arm 规划仍 6-DOF。chain tip 指 gripper_tip_tcp 后，RViz 的目标球就落这里。 -->
+  <link name="$(arg prefix)gripper_tip_tcp"/>
+  <joint name="tool0_to_gripper_tip_tcp" type="fixed">
+    <parent link="$(arg prefix)tool0"/>
+    <child link="$(arg prefix)gripper_tip_tcp"/>
+    <origin xyz="0 0 0.17127" rpy="0 0 0"/>
   </joint>
 </robot>

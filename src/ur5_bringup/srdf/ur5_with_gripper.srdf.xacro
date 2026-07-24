@@ -2,21 +2,63 @@
 <robot xmlns:xacro="http://ros.org/wiki/xacro" name="ur5">
   <!--
     SRDF for ur5 + Lebai gripper.
-    Includes the system ur_moveit SRDF (ur_manipulator group, virtual_joint,
-    disable_collisions for the arm) and appends the Lebai gripper block.
-    Group/joint/state names mirror lebai_lm3_moveit_config/config/lebai_lm3.srdf;
-    disable_collisions copied verbatim from that file (gripper-internal pairs only —
-    arm-internal pairs come from the included ur.srdf.xacro).
+    ur_manipulator group 是本地 fork（内联系统 ur_macro.srdf.xacro 的 group/states/arm
+    disable_collisions），唯一改动：chain tip = gripper_tip_tcp（URDF 里加的固定 TCP 帧），
+    让 RViz 目标交互球 / IK 目标落在夹爪 tip。arm 仍 6-DOF。
+    后面是 Lebai gripper block（group/end_effector/open-closed/disable_collisions），
+    group/joint/state 名镜像 lebai_lm3_moveit_config/config/lebai_lm3.srdf。
   -->
 
-  <!-- system ur_moveit SRDF: ur_manipulator group + arm disable_collisions -->
-  <xacro:include filename="$(find ur_moveit_config)/srdf/ur.srdf.xacro"/>
+  <!-- ===== ur_manipulator: 本地 fork（原 <xacro:include ur.srdf.xacro/> 的 ur_srdf 宏内联）=====
+       唯一改动：chain tip 从 tool0 → gripper_tip_tcp（URDF 里加的固定 TCP 帧，与 gripper_tip 共位）。
+       这样 MoveIt 的目标交互球 / IK 目标落在夹爪 tip 而非法兰。固定 joint=0 DOF → 仍 6-DOF arm 规划，
+       joint_trajectory_controller 仍收 6 arm 关节，组名 ur_manipulator 不变（kinematics/OMPL/servo 不动）。
+       不能直接把 tip 设成 gripper_tip——会拖进 3 个 mimic revolute 关节变 9-DOF 炸控制器。 -->
+  <group name="ur_manipulator">
+    <chain base_link="base_link" tip_link="gripper_tip_tcp" />
+  </group>
+  <group_state name="home" group="ur_manipulator">
+    <joint name="elbow_joint" value="0" />
+    <joint name="shoulder_lift_joint" value="-1.5707" />
+    <joint name="shoulder_pan_joint" value="0" />
+    <joint name="wrist_1_joint" value="0" />
+    <joint name="wrist_2_joint" value="0" />
+    <joint name="wrist_3_joint" value="0" />
+  </group_state>
+  <group_state name="up" group="ur_manipulator">
+    <joint name="elbow_joint" value="0" />
+    <joint name="shoulder_lift_joint" value="-1.5707" />
+    <joint name="shoulder_pan_joint" value="0" />
+    <joint name="wrist_1_joint" value="-1.5707" />
+    <joint name="wrist_2_joint" value="0" />
+    <joint name="wrist_3_joint" value="0" />
+  </group_state>
+  <group_state name="test_configuration" group="ur_manipulator">
+    <joint name="elbow_joint" value="1.4" />
+    <joint name="shoulder_lift_joint" value="-1.62" />
+    <joint name="shoulder_pan_joint" value="1.54" />
+    <joint name="wrist_1_joint" value="-1.2" />
+    <joint name="wrist_2_joint" value="-1.6" />
+    <joint name="wrist_3_joint" value="-0.11" />
+  </group_state>
+  <!-- arm-internal disable_collisions（照搬 ur_macro.srdf.xacro）-->
+  <disable_collisions link1="base_link" link2="base_link_inertia" reason="Adjacent" />
+  <disable_collisions link1="base_link_inertia" link2="shoulder_link" reason="Adjacent" />
+  <disable_collisions link1="tool0" link2="wrist_1_link" reason="Never" />
+  <disable_collisions link1="tool0" link2="wrist_2_link" reason="Never" />
+  <disable_collisions link1="tool0" link2="wrist_3_link" reason="Adjacent" />
+  <disable_collisions link1="forearm_link" link2="upper_arm_link" reason="Adjacent" />
+  <disable_collisions link1="forearm_link" link2="wrist_1_link" reason="Adjacent" />
+  <disable_collisions link1="shoulder_link" link2="upper_arm_link" reason="Adjacent" />
+  <disable_collisions link1="wrist_1_link" link2="wrist_2_link" reason="Adjacent" />
+  <disable_collisions link1="wrist_1_link" link2="wrist_3_link" reason="Never" />
+  <disable_collisions link1="wrist_2_link" link2="wrist_3_link" reason="Adjacent" />
 
   <!-- ===== Lebai gripper (from lebai_lm3_moveit_config/config/lebai_lm3.srdf) ===== -->
   <group name="gripper">
     <joint name="gripper_r_joint1"/>
   </group>
-  <end_effector name="gripper" parent_link="tool0" group="gripper" parent_group="ur_manipulator"/>
+  <end_effector name="gripper" parent_link="gripper_tip_tcp" group="gripper" parent_group="ur_manipulator"/>
   <group_state name="open" group="gripper">
     <joint name="gripper_r_joint1" value="1.0471975512"/>
   </group_state>

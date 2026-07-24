@@ -96,17 +96,14 @@ parser.add_argument(
 )
 parser.add_argument(
     "--gripper_prim",
-    default="/World/gripper_abs_stl/Geometry",
-    help="Gripper articulation prim (prim with ArticulationRootAPI for the Lebai "
-    "gripper). Default mirrors ~/Desktop/scene.usd, where the gripper's "
-    "ArticulationRootAPI lives on the Scope /World/gripper_abs_stl/Geometry "
-    "(NOT on /World/gripper_abs_stl — the joints live under the sibling "
-    ".../Physics scope and are resolved via body-link refs). Used for the "
-    "gripper ArticulationController.robotPath AND ReadJointState.prim. The "
-    "gripper is driven by /isaac_gripper_joint_commands (JointState) and its "
-    "state published on /isaac_gripper_joint_states; isaac_gripper_action "
-    "translates the MoveIt GripperCommand handle. If your scene's gripper lives "
-    "elsewhere, override here.",
+    default=None,
+    help="Prim the gripper ArticulationControllerG/ReadJointStateG target. After "
+    "the gripper is welded into the UR5 articulation (one merged root), this "
+    "defaults to --articulation_prim (<robot_prim>/root_joint) — the SAME root "
+    "the arm graph uses. Two IsaacArticulationControllers on one root with "
+    "disjoint jointNames coexist (arm 6 joints via /isaac_joint_commands; "
+    "gripper joints via /isaac_gripper_joint_commands). Override only if your "
+    "gripper is still a SEPARATE articulation (pre-weld).",
 )
 parser.add_argument(
     "--headless",
@@ -132,6 +129,10 @@ if args.articulation_prim is None:
     args.articulation_prim = args.robot_prim + "/root_joint"
 if args.camera_prim is None:
     args.camera_prim = args.robot_prim + "/wrist_3_link/flange/wrist_camera"
+# Gripper is welded into the UR5 articulation (one merged root) → gripper graph
+# targets the SAME articulation_prim as the arm (see A2 / weld_gripper.py).
+if args.gripper_prim is None:
+    args.gripper_prim = args.articulation_prim
 
 # Fail fast on a missing scene: booting Isaac takes ~30s, so check now.
 if not os.path.isfile(args.usd):

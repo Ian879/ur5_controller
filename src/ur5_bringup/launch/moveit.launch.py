@@ -218,11 +218,21 @@ def launch_setup(context, *args, **kwargs):
     # (lebai_driver/serial_gripper) and isaac backend (ur5_motion/isaac_gripper_action)
     # each provide the same `lebai_gripper_controller/gripper_cmd` action.
     controllers_yaml.setdefault("lebai_gripper_controller", {
-        "action_ns": "lebai_gripper_controller/gripper_cmd",
+        # ⚠️ action_ns 只填后缀！MoveIt 的 GripperCommand 句柄会把 action 名拼成
+        # <controller_name>/<action_ns>。controller_name 已是 lebai_gripper_controller，
+        # 故 action_ns 填 gripper_cmd → 拼成 lebai_gripper_controller/gripper_cmd（与
+        # isaac_gripper_action / lebai_driver 暴露的 action 同名）。填全路径会双前缀。
+        "action_ns": "gripper_cmd",
         "type": "GripperCommand",
         "default": True,
         "joints": ["gripper_r_joint1"],
     })
+    # ⚠️ moveit_simple_controller_manager 只加载 controller_names 列表里的控制器。
+    # 光往 dict 加没用——必须同时把名字塞进 controller_names，否则 gripper 句柄被忽略
+    # （报 "Unable to identify any set of controllers that can actuate [gripper_r_joint1]"）。
+    names = controllers_yaml.setdefault("controller_names", [])
+    if "lebai_gripper_controller" not in names:
+        names.append("lebai_gripper_controller")
 
     moveit_controllers = {
         "moveit_simple_controller_manager": controllers_yaml,

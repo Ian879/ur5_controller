@@ -83,7 +83,9 @@
   <joint name="tool0_to_gripper_base" type="fixed">
     <parent link="$(arg tf_prefix)tool0"/>
     <child link="$(arg tf_prefix)gripper_base_link"/>
-    <origin xyz="0 0 0" rpy="0 0 0"/>
+    <!-- 转接环 offset：沿 tool0 Z 把夹爪 base 撑离 flange（实测场景 +0.01267m，无转角）。
+         与 ur5_with_gripper.urdf.xacro 保持一致。先按场景值试，不够再调。 -->
+    <origin xyz="0 0 0.01267" rpy="0 0 0"/>
   </joint>
 
   <!-- ===== 2) isaac ros2_control (TopicBasedSystem) ===== -->
