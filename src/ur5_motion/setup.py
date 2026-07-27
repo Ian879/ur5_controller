@@ -24,6 +24,7 @@ setup(
         "console_scripts": [
             "demo_plan_execute = ur5_motion.demos.demo_plan_execute:main",
             "demo_collision = ur5_motion.demos.demo_collision:main",
+            "demo_grasp = ur5_motion.demos.demo_grasp:main",
             "demo_table_scene = ur5_motion.demos.demo_table_scene:main",
             "sync_scene = ur5_motion.demos.sync_scene:main",
             "world_sync = ur5_motion.world_sync_node:main",

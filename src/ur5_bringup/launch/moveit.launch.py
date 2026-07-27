@@ -188,7 +188,7 @@ def launch_setup(context, *args, **kwargs):
     ompl_planning_yaml = load_yaml("ur_moveit_config", "config/ompl_planning.yaml")
     planning_pipelines_config = {
         "planning_pipelines": ["ompl", "pilz"],
-        "default_planning_pipeline": "pilz",
+        "default_planning_pipeline": "ompl",
         "ompl": {  # OMPL 兜底（拥挤场景 pilz 解不出时 RViz 手切）
             "planning_plugin": "ompl_interface/OMPLPlanner",
             "request_adapters": "default_planner_request_adapters/AddTimeOptimalParameterization default_planner_request_adapters/FixWorkspaceBounds default_planner_request_adapters/FixStartStateBounds default_planner_request_adapters/FixStartStateCollision default_planner_request_adapters/FixStartStatePathConstraints",
@@ -214,9 +214,10 @@ def launch_setup(context, *args, **kwargs):
         controllers_yaml["scaled_joint_trajectory_controller"]["default"] = False
         controllers_yaml["joint_trajectory_controller"]["default"] = True
 
-    # Lebai gripper GripperCommand handle. action name is fixed; real backend
-    # (lebai_driver/serial_gripper) and isaac backend (ur5_motion/isaac_gripper_action)
-    # each provide the same `lebai_gripper_controller/gripper_cmd` action.
+    # Lebai gripper GripperCommand handle（action 名固定 lebai_gripper_controller/gripper_cmd）。
+    # isaac 后端由 ur5_motion/isaac_gripper_action 提供该 action；real 后端 serial_gripper 只
+    # 提供 service（不提供 GripperCommand action），需另起夹爪桥——lebai_driver/gripper_action.py
+    # 是现成桥但未注册 console_script，P5 真机适配时启用。两端 action 名一致，MoveIt 句柄通用。
     controllers_yaml.setdefault("lebai_gripper_controller", {
         # ⚠️ action_ns 只填后缀！MoveIt 的 GripperCommand 句柄会把 action 名拼成
         # <controller_name>/<action_ns>。controller_name 已是 lebai_gripper_controller，
@@ -280,17 +281,17 @@ def launch_setup(context, *args, **kwargs):
         ],
     )
 
-    # rviz with moveit configuration
-    rviz_config_file = PathJoinSubstitution(
-        [FindPackageShare(moveit_config_package), "rviz", "view_robot.rviz"]
-    )
+    # rviz with moveit configuration。配置默认 ur5_bringup fork（系统配置 + depth
+    # Image/DepthCloud + TF display，P3）；可经 rviz_config_file launch arg 覆盖（指向
+    # 任意 .rviz）。注意：不能用 moveit_config_package 的 rviz——直接传
+    # moveit_config_package:=ur5_bringup 会连带切走 kinematics/controllers 加载路径→崩。
     rviz_node = Node(
         package="rviz2",
         condition=IfCondition(launch_rviz),
         executable="rviz2",
         name="rviz2_moveit",
         output="log",
-        arguments=["-d", rviz_config_file],
+        arguments=["-d", LaunchConfiguration("rviz_config_file")],
         parameters=[
             robot_description,
             robot_description_semantic,
@@ -441,6 +442,15 @@ def generate_launch_description():
     )
     declared_arguments.append(
         DeclareLaunchArgument("launch_rviz", default_value="true", description="Launch RViz?")
+    )
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "rviz_config_file",
+            default_value=PathJoinSubstitution(
+                [FindPackageShare("ur5_bringup"), "rviz", "view_robot.rviz"]
+            ),
+            description="RViz 配置。默认 ur5_bringup fork（系统配置 + depth display，P3）。",
+        )
     )
     declared_arguments.append(
         DeclareLaunchArgument("launch_servo", default_value="true", description="Launch Servo?")

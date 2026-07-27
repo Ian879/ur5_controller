@@ -8,3 +8,11 @@ isaac_ros_ws/
 .superpowers/
 *.bak
 ur5_table.usd
+.claudesssjjjj
+# 本地/临时文件（不入库）
+image.png
+/isaacsim_assets
+/lebai_gripper
+/usds
+/realsenseURflangeSupport.stl
+scenes/LMG-90_gripper.urdf.usd/

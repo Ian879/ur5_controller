@@ -12,7 +12,7 @@ app = SimulationApp({"headless": True})
 
 from pxr import Usd, UsdGeom, Gf
 
-SCENE = os.path.expanduser("~/Desktop/scene.usd")
+SCENE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scenes", "scene.usd")
 stage = Usd.Stage.Open(SCENE)
 assert stage, f"cannot open {SCENE}"
 

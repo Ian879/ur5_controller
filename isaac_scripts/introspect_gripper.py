@@ -17,7 +17,7 @@ app = SimulationApp({"headless": True})
 from pxr import Usd, UsdPhysics
 
 SCENES = [
-    os.path.expanduser("~/Desktop/scene.usd"),
+    os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scenes", "scene.usd"),
     "/home/gds/projects/shengzhi/ur5_controller/scenes/scene.usd",
 ]
 

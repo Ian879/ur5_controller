@@ -18,6 +18,7 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, OpaqueFunction
 from launch.launch_description_sources import AnyLaunchDescriptionSource
 from launch.substitutions import EnvironmentVariable, LaunchConfiguration, PathJoinSubstitution
+from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 
 PLACEHOLDER_IP = "192.168.xxx.xxx"
@@ -56,7 +57,26 @@ def _launch_with_real(context, *args, **kwargs):
                 "description_package": "ur5_bringup",
                 "description_file": "ur5_with_gripper.urdf.xacro",
             }.items(),
-        )
+        ),
+        # world→base_link TF（真机抬升基座）：isaac 由桥自动从 USD 读 base 世界 pose；
+        # 真机不能读 USD，用 world_to_base_* launch arg 配置（现场量出 base 相对 world 的
+        # 位姿后填，默认 identity）。ur_robot_driver 默认的 world→base 也是 identity，
+        # 这里覆盖抬升。⚠️ 真机装好后务必量出填入（含基座/围栏/台子的抬升）。
+        Node(
+            package="tf2_ros",
+            executable="static_transform_publisher",
+            name="world_to_base_link",
+            arguments=[
+                "--frame-id", "world",
+                "--child-frame-id", "base_link",
+                "--x", LaunchConfiguration("world_to_base_x"),
+                "--y", LaunchConfiguration("world_to_base_y"),
+                "--z", LaunchConfiguration("world_to_base_z"),
+                "--roll", LaunchConfiguration("world_to_base_roll"),
+                "--pitch", LaunchConfiguration("world_to_base_pitch"),
+                "--yaw", LaunchConfiguration("world_to_base_yaw"),
+            ],
+        ),
     ]
 
 
@@ -68,6 +88,14 @@ def generate_launch_description():
                 default_value=EnvironmentVariable("UR5_HOST", default_value=PLACEHOLDER_IP),
                 description="真实 UR5 的 IP。默认读环境变量 UR5_HOST（在 tools/robot_ip.sh 设置）。",
             ),
+            # world→base_link TF 的抬升值（仅 real；isaac 由桥自动读 USD）。默认 identity，
+            # 真机装好后量出 base 相对 world 的位姿填入。
+            DeclareLaunchArgument("world_to_base_x", default_value="0.0"),
+            DeclareLaunchArgument("world_to_base_y", default_value="0.0"),
+            DeclareLaunchArgument("world_to_base_z", default_value="0.0"),
+            DeclareLaunchArgument("world_to_base_roll", default_value="0.0"),
+            DeclareLaunchArgument("world_to_base_pitch", default_value="0.0"),
+            DeclareLaunchArgument("world_to_base_yaw", default_value="0.0"),
             OpaqueFunction(function=_launch_with_real),
         ]
     )

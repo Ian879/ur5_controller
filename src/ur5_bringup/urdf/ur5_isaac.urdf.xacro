@@ -88,6 +88,31 @@
     <origin xyz="0 0 0.01267" rpy="0 0 0"/>
   </joint>
 
+  <!-- Orbbec Gemini 2 相机（官方 gemini_2.urdf.xacro，eye-in-hand 挂 flange）。
+       mount 位姿 = USD 实测（orbbec_gemini_2 相对 flange）：xyz=(0,0,0), rpy=(0,0,-90°)。
+       带 mesh + REP-103 光学帧。与 ur5_with_gripper.urdf.xacro 一致。-->
+  <xacro:include filename="$(find orbbec_description)/urdf/gemini_2.urdf.xacro"/>
+  <joint name="flange_to_camera_link" type="fixed">
+    <parent link="$(arg tf_prefix)flange"/>
+    <child link="camera_link"/>
+    <origin xyz="0.026 0.028 0.0579" rpy="0 0 0"/>
+  </joint>
+
+  <!-- cameraURflangeSupport 转接环（visual only；STL mm 制 scale 0.001）-->
+  <link name="camera_flange_support">
+    <visual>
+      <geometry>
+        <mesh filename="package://ur5_bringup/meshes/realsenseURflangeSupport.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+      <material name="flange_support_gray"><color rgba="0.5 0.5 0.5 1"/></material>
+    </visual>
+  </link>
+  <joint name="flange_to_camera_flange_support" type="fixed">
+    <parent link="$(arg tf_prefix)flange"/>
+    <child link="camera_flange_support"/>
+    <origin xyz="0 0 0" rpy="0 0 1.5708"/>
+  </joint>
+
   <!-- ===== 2) isaac ros2_control (TopicBasedSystem) ===== -->
   <xacro:include filename="$(find ur5_bringup)/urdf/ur5_isaac.ros2_control.xacro"/>
 

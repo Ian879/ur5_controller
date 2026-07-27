@@ -30,6 +30,18 @@ install(DIRECTORY srdf
   OPTIONAL
 )
 
+# Meshes (cameraURflangeSupport adapter etc.)
+install(DIRECTORY meshes
+  DESTINATION share/${PROJECT_NAME}
+  OPTIONAL
+)
+
+# RViz 配置（系统 view_robot.rviz 的 fork + depth Image/DepthCloud + TF display，P3）
+install(DIRECTORY rviz
+  DESTINATION share/${PROJECT_NAME}
+  OPTIONAL
+)
+
 # Provide ur_description's ur5 config yamls so the real backend's
 # ur_control.launch.py can resolve its non-overridable config
 # PathJoinSubstitutions when description_package:=ur5_bringup:

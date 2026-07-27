@@ -67,13 +67,17 @@ class UR5MoveIt:
             use_move_group_action=True,
         )
 
-        # pilz 比 OMPL 挑剔，两个必设项（pymoveit2 默认值 pilz 都不接受）：
-        # (1) planner_id：pymoveit2 默认 ""，pilz 报 "No ContextLoader for planner_id '' found"。
-        #     默认 PTP（关节空间最短直路，不再乱绕）；末端走直线时设 "LIN"（SP3 抓取接近用）。
-        # (2) max_velocity/accel（pymoveit2 属性名，写 request 的 *_scaling_factor）：
-        #     pymoveit2 默认 0.0，pilz 报 "Velocity scaling not in range [0.0001, 1], value: 0"。
-        #     设 0.5（安全；要更快调到 1.0）。pipeline_id 留空 → move_group 用默认 pilz。
-        self._moveit.planner_id = "PTP"
+        # 默认规划走 OMPL（moveit.launch.py 的 default_planning_pipeline=ompl）。
+        # (1) planner_id 留空 → move_group 用 ompl pipeline 的默认 planner（RRTConnect）。
+        #     ⚠️ 不能填 pilz 的 "PTP"——OMPL pipeline 没有 PTP planner，move_group 会报
+        #     "No ContextLoader for planner_id 'PTP' found"。末端直线接近需切 pilz（见下）。
+        # (2) max_velocity/accel（pymoveit2 属性，写 request.velocity/acceleration_scaling_factor）：
+        #     OMPL pipeline 的 AddTimeOptimalParameterization adapter 用它给轨迹加时间参数，
+        #     pymoveit2 默认 0.0 会让时间参数化失败。设 0.5（安全；要更快调到 1.0）。
+        #     pilz 同样依赖它（默认 0.0 时 pilz 报 "not in range [0.0001, 1]"）。
+        # 末端直线接近（抓取 approach）首期仍用 OMPL 关节空间；要强制 LIN 直线需切 pilz
+        # pipeline——pymoveit2 不直接暴露 pipeline 选择，作为后续优化。
+        self._moveit.planner_id = ""
         self._moveit.max_velocity = 0.5
         self._moveit.max_acceleration = 0.5
 
@@ -140,6 +144,24 @@ class UR5MoveIt:
     def remove_collision(self, name: str) -> None:
         """从规划场景删除指定 id 的碰撞物体。"""
         self._moveit.remove_collision_object(id=name)
+
+    # ── PlanningScene：attach/detach（抓取后物体跟随末端；pymoveit2 已封装）──
+    def attach_object(
+        self,
+        name: str,
+        link_name: str = "gripper_tip_tcp",
+        touch_links: Optional[Sequence[str]] = None,
+    ) -> None:
+        """把碰撞体 name attach 到 link_name（默认 gripper_tip_tcp），之后随该 link 移动。
+        touch_links=允许物体重叠的 link（夹爪手指等，避免 attach 后误判碰撞）。
+        用于抓取：闭合夹爪后 attach 物体跟随，放下前 detach。"""
+        self._moveit.attach_collision_object(
+            id=name, link_name=link_name, touch_links=list(touch_links or [])
+        )
+
+    def detach_object(self, name: str) -> None:
+        """解除 attach（放下物体）。"""
+        self._moveit.detach_collision_object(id=name)
 
     def cancel(self) -> None:
         """取消当前运动（pymoveit2 4.x 的方法是 cancel_execution）。"""

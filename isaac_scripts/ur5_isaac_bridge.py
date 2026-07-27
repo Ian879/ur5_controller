@@ -244,11 +244,49 @@ try:
 except Exception as _e:  # noqa: BLE001
     carb.log_warn(f"[scene-diag] failed: {_e}")
 
+# ── world→base_link TF 数据（P2）：读 base_link 世界 pose，供下面 ActionGraph 的
+#    ROS2PublishTransformTree 发 tf_static。替代 sim_isaac.launch.py 的硬编码 TF——
+#    GUI 挪机器人后重启桥即自动跟随。兜底 identity（prim 无效时不阻塞 arm/clock/camera）。
+_base_trans = [0.0, 0.0, 0.0]
+_base_quat = [0.0, 0.0, 0.0, 1.0]  # xyzw
+try:
+    _base_prim = stage.GetPrimAtPath(args.robot_prim + "/base_link")
+    if _base_prim.IsValid():
+        _bw = UsdGeom.Xformable(_base_prim).ComputeLocalToWorldTransform(_Usd.TimeCode.Default())
+        _bt = _bw.ExtractTranslation()
+        _bq = _bw.ExtractRotationQuat()  # Gf.Quatd：实部 GetReal()=w，虚部 GetImaginary()=Vec3(x,y,z)
+        _bi = _bq.GetImaginary()
+        _base_trans = [float(_bt[0]), float(_bt[1]), float(_bt[2])]
+        _base_quat = [float(_bi[0]), float(_bi[1]), float(_bi[2]), float(_bq.GetReal())]
+        carb.log_warn(f"[world-tf] world→base_link = trans={_base_trans} quat(xyzw)={_base_quat}")
+    else:
+        carb.log_warn(f"[world-tf] base_link prim 无效（{args.robot_prim}/base_link），用 identity 兜底")
+except Exception as _e:  # noqa: BLE001
+    carb.log_warn(f"[world-tf] 算 base pose 失败: {_e}（用 identity 兜底）")
+
 # Sanity-check that the prims we wire into the OmniGraph actually exist in the
 # loaded stage. The articulation prim is the load-bearing one: if it's invalid,
 # the OG nodes emit "Failed to find articulation" / "no DOFs found".
 _art_ok = bool(stage.GetPrimAtPath(args.articulation_prim).IsValid())
 _camera_ok = bool(stage.GetPrimAtPath(args.camera_prim).IsValid())
+# 默认 camera_prim（<robot_prim>/wrist_3_link/flange/wrist_camera）在眼在手场景里通常
+# 不存在（相机是独立 rgbd_camera 装配、靠 FixedJoint 挂在手法上，不在 robot_prim 下）。
+# 此时自动找场景里的 RGB Camera prim（路径含 'rgb'，排除 ir/depth）改用，省得每次手传 --camera_prim。
+if not _camera_ok:
+    _found_cam = None
+    for _p in stage.Traverse():
+        if _p.GetTypeName() == "Camera":
+            _ps = str(_p.GetPath()).lower()
+            if "rgb" in _ps and "ir" not in _ps and "depth" not in _ps:
+                _found_cam = str(_p.GetPath())
+                break
+    if _found_cam:
+        carb.log_warn(
+            f"camera_prim '{args.camera_prim}' 无效；自动改用场景里的 RGB 相机 prim: {_found_cam}"
+            f"\n    （要换相机，传 --camera_prim <Camera prim 路径>）"
+        )
+        args.camera_prim = _found_cam
+        _camera_ok = True
 _gripper_ok = bool(stage.GetPrimAtPath(args.gripper_prim).IsValid())
 if not _art_ok:
     carb.log_error(
@@ -280,8 +318,10 @@ if not _gripper_ok:
         "    若场景里没有夹爪 articulation，忽略本警告——arm/clock/camera 照常跑."
     )
 
-# --- 清理残留 ActionGraph（之前的桥运行可能把图存进了 scene.usd，robotPath 是老的）---
-for _stale_path in ["/World/ActionGraph", "/ActionGraph"]:
+# --- 清理残留 graph（之前的桥运行可能把图存进了 scene.usd，robotPath/cameraPrim 是老的；
+#     场景自带的 /World/ROS_Camera 也会和桥的 /ROS_Camera 抢同一个相机 → 都不出图）---
+for _stale_path in ["/World/ActionGraph", "/ActionGraph",
+                    "/World/ROS_Camera", "/ROS_Camera"]:
     _stale = stage.GetPrimAtPath(_stale_path)
     if _stale.IsValid():
         stage.RemovePrim(_stale.GetPath())
@@ -316,6 +356,9 @@ try:
                 ("PublishJointStateG", "isaacsim.ros2.bridge.ROS2PublishJointState"),
                 ("SubscribeJointStateG", "isaacsim.ros2.bridge.ROS2SubscribeJointState"),
                 ("ArticulationControllerG", "isaacsim.core.nodes.IsaacArticulationController"),
+                # world→base_link TF 发布（P2：从 USD 读机器人 base 世界 pose 发 tf_static，
+                # 替代 sim_isaac.launch.py 的硬编码 static_transform_publisher，GUI 挪机器人自动跟随）。
+                ("WorldTfPub", "isaacsim.ros2.bridge.ROS2PublishTransformTree"),
             ],
             og.Controller.Keys.CONNECT: [
                 ("OnPlaybackTick.outputs:tick", "ReadJointState.inputs:execIn"),
@@ -371,6 +414,9 @@ try:
                     "ArticulationControllerG.inputs:velocityCommand",
                 ),
                 ("SubscribeJointStateG.outputs:effortCommand", "ArticulationControllerG.inputs:effortCommand"),
+                # WorldTfPub 由 OnPlaybackTick + ROS2Context 驱动（translation/orientation 在 SET_VALUES 里设常量）
+                ("OnPlaybackTick.outputs:tick", "WorldTfPub.inputs:execIn"),
+                ("Context.outputs:context", "WorldTfPub.inputs:context"),
             ],
             og.Controller.Keys.SET_VALUES: [
                 # Point the articulation controller + joint reader at the UR5
@@ -401,6 +447,14 @@ try:
                 # isaac_gripper_action writes commands here & reads states here.
                 ("PublishJointStateG.inputs:topicName", "isaac_gripper_joint_states"),
                 ("SubscribeJointStateG.inputs:topicName", "isaac_gripper_joint_commands"),
+                # WorldTfPub：world→base_link static TF。parent/child/translation/orientation 用
+                # 预读的 base_link 世界 pose 常量（机器人 base 静态，staticPublisher=latch 发 tf_static）。
+                ("WorldTfPub.inputs:topicName", "tf_static"),
+                ("WorldTfPub.inputs:staticPublisher", True),
+                ("WorldTfPub.inputs:parentFrames", ["world"]),
+                ("WorldTfPub.inputs:childFrames", ["base_link"]),
+                ("WorldTfPub.inputs:translations", [_base_trans]),
+                ("WorldTfPub.inputs:orientations", [_base_quat]),
             ],
         },
     )

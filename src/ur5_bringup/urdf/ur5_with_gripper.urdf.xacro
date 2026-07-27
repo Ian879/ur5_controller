@@ -52,4 +52,29 @@
     <child link="$(arg prefix)gripper_tip_tcp"/>
     <origin xyz="0 0 0.17127" rpy="0 0 0"/>
   </joint>
+
+  <!-- Orbbec Gemini 2 相机（官方 orbbec_description/urdf/gemini_2.urdf.xacro，eye-in-hand）。
+       mount 位姿 = USD 实测（orbbec_gemini_2 相对 flange）：xyz=(0,0,0), rpy=(0,0,-90°)。
+       带 mesh + REP-103 光学帧。M7 手眼标定再精修。-->
+  <xacro:include filename="$(find orbbec_description)/urdf/gemini_2.urdf.xacro"/>
+  <joint name="flange_to_camera_link" type="fixed">
+    <parent link="$(arg prefix)flange"/>
+    <child link="camera_link"/>
+    <origin xyz="0.026 0.028 0.0579" rpy="0 0 0"/>
+  </joint>
+
+  <!-- cameraURflangeSupport 转接环（visual only；STL 原始 mm 制，scale 0.001 转 m）-->
+  <link name="camera_flange_support">
+    <visual>
+      <geometry>
+        <mesh filename="package://ur5_bringup/meshes/realsenseURflangeSupport.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+      <material name="flange_support_gray"><color rgba="0.5 0.5 0.5 1"/></material>
+    </visual>
+  </link>
+  <joint name="flange_to_camera_flange_support" type="fixed">
+    <parent link="$(arg prefix)flange"/>
+    <child link="camera_flange_support"/>
+    <origin xyz="0 0 0" rpy="0 0 1.5708"/>
+  </joint>
 </robot>

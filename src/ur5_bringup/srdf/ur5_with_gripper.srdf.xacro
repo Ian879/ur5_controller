@@ -91,4 +91,85 @@
   <disable_collisions link1="gripper_r_link1" link2="gripper_r_link_finger" reason="Never"/>
   <disable_collisions link1="gripper_r_link2" link2="gripper_r_link_finger" reason="Never"/>
 
+  <!-- ===== Orbbec 相机：camera_link + camera_botter_screw_frame vs 全部手臂/夹爪 link（刚性挂载，不做自碰撞）===== -->
+  <disable_collisions link1="camera_link" link2="base_link" reason="Never"/>
+  <disable_collisions link1="camera_link" link2="base_link_inertia" reason="Never"/>
+  <disable_collisions link1="camera_link" link2="shoulder_link" reason="Never"/>
+  <disable_collisions link1="camera_link" link2="upper_arm_link" reason="Never"/>
+  <disable_collisions link1="camera_link" link2="forearm_link" reason="Never"/>
+  <disable_collisions link1="camera_link" link2="wrist_1_link" reason="Never"/>
+  <disable_collisions link1="camera_link" link2="wrist_2_link" reason="Never"/>
+  <disable_collisions link1="camera_link" link2="wrist_3_link" reason="Never"/>
+  <disable_collisions link1="camera_link" link2="flange" reason="Never"/>
+  <disable_collisions link1="camera_link" link2="tool0" reason="Never"/>
+  <disable_collisions link1="camera_link" link2="gripper_base_link" reason="Never"/>
+  <disable_collisions link1="camera_link" link2="gripper_r_link1" reason="Never"/>
+  <disable_collisions link1="camera_link" link2="gripper_r_link2" reason="Never"/>
+  <disable_collisions link1="camera_link" link2="gripper_r_link_finger" reason="Never"/>
+  <disable_collisions link1="camera_link" link2="gripper_l_link1" reason="Never"/>
+  <disable_collisions link1="camera_link" link2="gripper_l_link2" reason="Never"/>
+  <disable_collisions link1="camera_link" link2="gripper_l_link_finger" reason="Never"/>
+  <disable_collisions link1="camera_link" link2="gripper_tip_midpoint_arm" reason="Never"/>
+  <disable_collisions link1="camera_link" link2="gripper_tip_midpoint_counterarm" reason="Never"/>
+  <disable_collisions link1="camera_link" link2="gripper_tip" reason="Never"/>
+  <disable_collisions link1="camera_link" link2="camera_flange_support" reason="Adjacent"/>
+  <disable_collisions link1="camera_botter_screw_frame" link2="base_link" reason="Never"/>
+  <disable_collisions link1="camera_botter_screw_frame" link2="shoulder_link" reason="Never"/>
+  <disable_collisions link1="camera_botter_screw_frame" link2="upper_arm_link" reason="Never"/>
+  <disable_collisions link1="camera_botter_screw_frame" link2="forearm_link" reason="Never"/>
+  <disable_collisions link1="camera_botter_screw_frame" link2="wrist_1_link" reason="Never"/>
+  <disable_collisions link1="camera_botter_screw_frame" link2="wrist_2_link" reason="Never"/>
+  <disable_collisions link1="camera_botter_screw_frame" link2="wrist_3_link" reason="Never"/>
+  <disable_collisions link1="camera_botter_screw_frame" link2="flange" reason="Never"/>
+  <disable_collisions link1="camera_botter_screw_frame" link2="tool0" reason="Never"/>
+  <disable_collisions link1="camera_botter_screw_frame" link2="gripper_base_link" reason="Never"/>
+  <disable_collisions link1="camera_botter_screw_frame" link2="gripper_r_link1" reason="Never"/>
+  <disable_collisions link1="camera_botter_screw_frame" link2="gripper_l_link1" reason="Never"/>
+  <disable_collisions link1="camera_botter_screw_frame" link2="camera_flange_support" reason="Adjacent"/>
+  <!-- 相机内部（相邻 link，不做碰撞）-->
+  <disable_collisions link1="camera_link" link2="camera_botter_screw_frame" reason="Adjacent"/>
+  <disable_collisions link1="camera_link" link2="camera_depth_frame" reason="Adjacent"/>
+  <disable_collisions link1="camera_link" link2="camera_left_ir_frame" reason="Adjacent"/>
+  <disable_collisions link1="camera_depth_frame" link2="camera_color_frame" reason="Adjacent"/>
+  <disable_collisions link1="camera_depth_frame" link2="camera_right_ir_frame" reason="Adjacent"/>
+  <disable_collisions link1="camera_color_frame" link2="camera_color_optical_frame" reason="Adjacent"/>
+  <disable_collisions link1="camera_right_ir_frame" link2="camera_right_ir_optical_frame" reason="Adjacent"/>
+  <disable_collisions link1="camera_left_ir_frame" link2="camera_left_ir_optical_frame" reason="Adjacent"/>
+  <!-- 相机内部非相邻对（刚性整体，全部不自碰撞）-->
+  <disable_collisions link1="camera_link" link2="camera_color_frame" reason="Never"/>
+  <disable_collisions link1="camera_link" link2="camera_color_optical_frame" reason="Never"/>
+  <disable_collisions link1="camera_link" link2="camera_right_ir_frame" reason="Never"/>
+  <disable_collisions link1="camera_link" link2="camera_right_ir_optical_frame" reason="Never"/>
+  <disable_collisions link1="camera_link" link2="camera_left_ir_optical_frame" reason="Never"/>
+  <disable_collisions link1="camera_botter_screw_frame" link2="camera_depth_frame" reason="Never"/>
+  <disable_collisions link1="camera_botter_screw_frame" link2="camera_color_frame" reason="Never"/>
+  <disable_collisions link1="camera_botter_screw_frame" link2="camera_color_optical_frame" reason="Never"/>
+  <disable_collisions link1="camera_botter_screw_frame" link2="camera_right_ir_frame" reason="Never"/>
+  <disable_collisions link1="camera_botter_screw_frame" link2="camera_right_ir_optical_frame" reason="Never"/>
+  <disable_collisions link1="camera_botter_screw_frame" link2="camera_left_ir_frame" reason="Never"/>
+  <disable_collisions link1="camera_botter_screw_frame" link2="camera_left_ir_optical_frame" reason="Never"/>
+  <disable_collisions link1="camera_depth_frame" link2="camera_color_optical_frame" reason="Never"/>
+  <disable_collisions link1="camera_depth_frame" link2="camera_right_ir_optical_frame" reason="Never"/>
+  <disable_collisions link1="camera_depth_frame" link2="camera_left_ir_optical_frame" reason="Never"/>
+  <disable_collisions link1="camera_depth_frame" link2="camera_left_ir_frame" reason="Never"/>
+  <disable_collisions link1="camera_depth_frame" link2="camera_botter_screw_frame" reason="Never"/>
+  <disable_collisions link1="camera_color_frame" link2="camera_right_ir_frame" reason="Never"/>
+  <disable_collisions link1="camera_color_frame" link2="camera_right_ir_optical_frame" reason="Never"/>
+  <disable_collisions link1="camera_color_frame" link2="camera_left_ir_frame" reason="Never"/>
+  <disable_collisions link1="camera_color_frame" link2="camera_left_ir_optical_frame" reason="Never"/>
+  <disable_collisions link1="camera_color_frame" link2="camera_botter_screw_frame" reason="Never"/>
+  <disable_collisions link1="camera_right_ir_frame" link2="camera_left_ir_frame" reason="Never"/>
+  <disable_collisions link1="camera_right_ir_frame" link2="camera_left_ir_optical_frame" reason="Never"/>
+  <disable_collisions link1="camera_right_ir_frame" link2="camera_color_optical_frame" reason="Never"/>
+  <disable_collisions link1="camera_right_ir_frame" link2="camera_botter_screw_frame" reason="Never"/>
+  <disable_collisions link1="camera_right_ir_optical_frame" link2="camera_left_ir_frame" reason="Never"/>
+  <disable_collisions link1="camera_right_ir_optical_frame" link2="camera_left_ir_optical_frame" reason="Never"/>
+  <disable_collisions link1="camera_right_ir_optical_frame" link2="camera_color_optical_frame" reason="Never"/>
+  <disable_collisions link1="camera_right_ir_optical_frame" link2="camera_botter_screw_frame" reason="Never"/>
+  <disable_collisions link1="camera_left_ir_frame" link2="camera_color_optical_frame" reason="Never"/>
+  <disable_collisions link1="camera_left_ir_frame" link2="camera_botter_screw_frame" reason="Never"/>
+  <disable_collisions link1="camera_left_ir_optical_frame" link2="camera_color_optical_frame" reason="Never"/>
+  <disable_collisions link1="camera_left_ir_optical_frame" link2="camera_botter_screw_frame" reason="Never"/>
+  <disable_collisions link1="camera_color_optical_frame" link2="camera_botter_screw_frame" reason="Never"/>
+
 </robot>

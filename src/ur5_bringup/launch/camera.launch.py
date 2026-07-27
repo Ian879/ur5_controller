@@ -65,17 +65,10 @@ def _setup(context, *args, **kwargs):
     backend = LaunchConfiguration("backend").perform(context)
     actions = []
 
-    # ===== 占位 TF 子树（所有后端）=====
-    actions.append(_static_tf(
-        "tool0_to_camera_link", "tool0", "camera_link",
-        x="0.0", y="0.0", z="0.05",  # ★占位 mount；物理安装后改实测值，M7 精标
-    ))
-    actions.append(_static_tf(
-        "camera_link_to_color_optical", "camera_link", "camera_color_optical_frame",
-    ))
-    actions.append(_static_tf(
-        "camera_link_to_depth_optical", "camera_link", "camera_depth_optical_frame",
-    ))
+    # 相机 TF（camera_link + camera_color/depth_optical_frame 等）现由 robot URDF 提供——
+    # ur5_with_gripper.urdf.xacro / ur5_isaac.urdf.xacro 里 xacro:include 了 Orbbec 官方
+    # gemini_2.urdf.xacro（带 mesh + REP-103 光学帧），RSP 直接发相机 TF。故本 launch 不再
+    # 手搓 static TF（之前占位/手写的 TF 已删，避免和 URDF 双发冲突）。
 
     # ===== 后端 gate =====
     if backend == "real":
