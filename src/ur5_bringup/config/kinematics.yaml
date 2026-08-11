@@ -1,0 +1,19 @@
+# MoveIt IK solver：pick_ik（PickNik 新一代 IK，比 KDL/TRAC-IK 更鲁棒）。
+# 覆盖 UR 官方 ur_moveit_config 的 KDL 默认——KDL timeout 0.005s 太短，
+# 侧面接近（工具水平）等复杂姿态易 NO_IK。
+# ⚠️ global_approximation=false：全局 memetic 会忽略 seed 返回「绕远」解（elbow 绕 -260°
+# 等），导致臂停在缠绕位形，再规划 home 时 OMPL 解不开(INVALID_MOTION_PLAN)。
+# 改 local（梯度从 seed 出发）→ 解贴 home、干净；look pose / 顶部抓取均可达。
+/**:
+  ros__parameters:
+    robot_description_kinematics:
+      ur_manipulator:
+        kinematics_solver: pick_ik/PickIkPlugin
+        kinematics_solver_timeout: 0.05
+        kinematics_solver_attempts: 3
+        position_threshold: 0.001
+        orientation_threshold: 0.01
+        approximate: false
+        global_approximation: false
+        memetic_stop_on_first_solution: true
+        rotation_scale: 0.5

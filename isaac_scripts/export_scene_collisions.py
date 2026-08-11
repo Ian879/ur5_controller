@@ -21,6 +21,9 @@ parser.add_argument("--scene", default=os.path.expanduser("~/Desktop/scene.usd")
                     help="USD 场景路径（默认 ~/Desktop/scene.usd）")
 parser.add_argument("--robot_prim", default="/World/ur5",
                     help="机器人 prim 前缀；其下挂载件不当静态障碍（与桥 --robot_prim 默认一致）")
+parser.add_argument("--exclude_object", default="/World/bottle",
+                    help="抓取物体 prim 前缀（被抓，SurfaceGripper attach，不作静态障碍）。"
+                         "逗号分隔多个。默认 /World/bottle。底座/桌面/桌腿等静态障碍保留。")
 args = parser.parse_args()
 
 from isaacsim import SimulationApp
@@ -83,7 +86,16 @@ for prim in stage.Traverse():
             or "gripper" in path.lower()):
         continue
 
-    # 世界 AABB
+    # 排除抓取物体（被抓，SurfaceGripper attach，不作静态障碍；否则 grasp 夹爪碰 box）
+    _excl = [e.strip() for e in args.exclude_object.split(",") if e.strip()]
+    if any(path == e or path.startswith(e.rstrip("/") + "/") for e in _excl):
+        continue
+
+    # 世界 AABB（world axis-aligned）。⚠️ 必须用 ComputeAlignedRange，绝不能用 GetRange()：
+    # GetRange() 返回【局部】 range——center 恒在原点（不含 world transform），cylinder 会被
+    # 算到 world 原点（RViz 里架子"跑到桌底"）；且尺寸是 unscaled 的（elevate_base 是 scaled
+    # Cylinder：局部 0.5×0.5×1 经 scale 0.2,0.2,1.21 → world 0.1×0.1×1.21，GetRange 给 0.5
+    # = "半径粗细不对"）。ComputeAlignedRange 正确反映 world 尺寸 + world 位置。
     try:
         bbox = UsdGeom.Imageable(prim).ComputeWorldBound(
             Usd.TimeCode.Default(), UsdGeom.Tokens.default_)

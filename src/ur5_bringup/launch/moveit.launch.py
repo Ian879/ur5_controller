@@ -170,8 +170,10 @@ def launch_setup(context, *args, **kwargs):
         "publish_robot_description_semantic": _publish_robot_description_semantic
     }
 
+    # IK solver：用 ur5_bringup 的 pick_ik kinematics（覆盖 UR 官方 KDL 默认）。
+    # KDL timeout 0.005s 太短，侧面接近等复杂姿态易 NO_IK；pick_ik 更鲁棒。
     robot_description_kinematics = PathJoinSubstitution(
-        [FindPackageShare(moveit_config_package), "config", "kinematics.yaml"]
+        [FindPackageShare("ur5_bringup"), "config", "kinematics.yaml"]
     )
 
     # robot_description_planning: 用合并 joint_limits（velocity+accel，pilz 硬前置）。

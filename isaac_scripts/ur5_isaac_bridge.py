@@ -106,6 +106,15 @@ parser.add_argument(
     "gripper is still a SEPARATE articulation (pre-weld).",
 )
 parser.add_argument(
+    "--object_prim",
+    default=None,
+    help="抓取物体 prim 路径（如 /World/bottle）。给了则读其世界 pose，发 base_link→grasp_target "
+    "TF（ROS2PublishTransformTree）。⚠️ isaac python 是 3.12，humble rclpy 是 3.10，import rclpy "
+    "会 ABI 不兼容失败，故 object pose 走 isaac ros2 bridge graph（和 world→base 同套），demo_grasp "
+    "用 tf2 lookup grasp_target 读。不给则不发 object TF。",
+)
+# (SurfaceGripper 相关 CLI 已撤——真夹爪物理夹持不需要)
+parser.add_argument(
     "--headless",
     default=False,
     action="store_true",
@@ -179,6 +188,8 @@ import omni.graph.core as og  # noqa: E402
 import usdrt.Sdf  # noqa: E402
 from pxr import Gf, UsdGeom  # noqa: E402
 from isaacsim.core.simulation_manager import SimulationManager  # noqa: E402
+# SurfaceGripper 已撤——真夹爪靠物理夹持（手指对夹+摩擦），不靠吸附 attach。
+# isaac/real 一致：real Lebai 夹爪也是物理夹持，无 SurfaceGripper。
 
 # Enable the ROS2 bridge extension and let it settle for one frame.
 app_utils.enable_extension("isaacsim.ros2.bridge")
@@ -249,10 +260,12 @@ except Exception as _e:  # noqa: BLE001
 #    GUI 挪机器人后重启桥即自动跟随。兜底 identity（prim 无效时不阻塞 arm/clock/camera）。
 _base_trans = [0.0, 0.0, 0.0]
 _base_quat = [0.0, 0.0, 0.0, 1.0]  # xyzw
+_base_inv = None  # world→base 逆变换，供 object-in-base 换算
 try:
     _base_prim = stage.GetPrimAtPath(args.robot_prim + "/base_link")
     if _base_prim.IsValid():
         _bw = UsdGeom.Xformable(_base_prim).ComputeLocalToWorldTransform(_Usd.TimeCode.Default())
+        _base_inv = _bw.GetInverse()
         _bt = _bw.ExtractTranslation()
         _bq = _bw.ExtractRotationQuat()  # Gf.Quatd：实部 GetReal()=w，虚部 GetImaginary()=Vec3(x,y,z)
         _bi = _bq.GetImaginary()
@@ -263,6 +276,29 @@ try:
         carb.log_warn(f"[world-tf] base_link prim 无效（{args.robot_prim}/base_link），用 identity 兜底")
 except Exception as _e:  # noqa: BLE001
     carb.log_warn(f"[world-tf] 算 base pose 失败: {_e}（用 identity 兜底）")
+
+# ── object→base TF 数据（P4 抓取目标 pose）：--object_prim 给出才读。发 base_link→grasp_target TF。
+#    isaac python 3.12 不能 import rclpy（humble 3.10 ABI 不兼容），故走 isaac ros2 bridge graph。
+_obj_trans = [0.0, 0.0, 0.0]
+_obj_quat = [0.0, 0.0, 0.0, 1.0]
+if args.object_prim and _base_inv is not None:
+    try:
+        _op = stage.GetPrimAtPath(args.object_prim)
+        if _op.IsValid():
+            _ow = UsdGeom.Xformable(_op).ComputeLocalToWorldTransform(_Usd.TimeCode.Default())
+            _ob = _base_inv * _ow  # object 在 base 系 4x4
+            _ot = _ob.ExtractTranslation()
+            _oq = _ob.ExtractRotationQuat()
+            _oi = _oq.GetImaginary()
+            _obj_trans = [float(_ot[0]), float(_ot[1]), float(_ot[2])]
+            _obj_quat = [float(_oi[0]), float(_oi[1]), float(_oi[2]), float(_oq.GetReal())]
+            carb.log_warn(f"[object-tf] {args.object_prim} in base = trans={_obj_trans} quat(xyzw)={_obj_quat}")
+        else:
+            carb.log_warn(f"[object-tf] object_prim {args.object_prim} 无效，object TF 发 identity")
+    except Exception as _e:  # noqa: BLE001
+        carb.log_warn(f"[object-tf] 读 object pose 失败: {_e}")
+elif args.object_prim:
+    carb.log_warn(f"[object-tf] base_inv 不可用，object TF 发 identity")
 
 # Sanity-check that the prims we wire into the OmniGraph actually exist in the
 # loaded stage. The articulation prim is the load-bearing one: if it's invalid,
@@ -359,6 +395,9 @@ try:
                 # world→base_link TF 发布（P2：从 USD 读机器人 base 世界 pose 发 tf_static，
                 # 替代 sim_isaac.launch.py 的硬编码 static_transform_publisher，GUI 挪机器人自动跟随）。
                 ("WorldTfPub", "isaacsim.ros2.bridge.ROS2PublishTransformTree"),
+                # object→base TF（P4 抓取目标）：发 base_link→grasp_target，值=_obj_trans/_obj_quat
+                # （--object_prim 读的物体在 base 系 pose）。demo_grasp tf2 lookup grasp_target 读。
+                ("ObjectTfPub", "isaacsim.ros2.bridge.ROS2PublishTransformTree"),
             ],
             og.Controller.Keys.CONNECT: [
                 ("OnPlaybackTick.outputs:tick", "ReadJointState.inputs:execIn"),
@@ -417,6 +456,9 @@ try:
                 # WorldTfPub 由 OnPlaybackTick + ROS2Context 驱动（translation/orientation 在 SET_VALUES 里设常量）
                 ("OnPlaybackTick.outputs:tick", "WorldTfPub.inputs:execIn"),
                 ("Context.outputs:context", "WorldTfPub.inputs:context"),
+                # ObjectTfPub 同样由 OnPlaybackTick + ROS2Context 驱动
+                ("OnPlaybackTick.outputs:tick", "ObjectTfPub.inputs:execIn"),
+                ("Context.outputs:context", "ObjectTfPub.inputs:context"),
             ],
             og.Controller.Keys.SET_VALUES: [
                 # Point the articulation controller + joint reader at the UR5
@@ -455,6 +497,13 @@ try:
                 ("WorldTfPub.inputs:childFrames", ["base_link"]),
                 ("WorldTfPub.inputs:translations", [_base_trans]),
                 ("WorldTfPub.inputs:orientations", [_base_quat]),
+                # ObjectTfPub：base_link→grasp_target TF（物体在 base 系 pose；--object_prim 未给则 identity）
+                ("ObjectTfPub.inputs:topicName", "tf_static"),
+                ("ObjectTfPub.inputs:staticPublisher", True),
+                ("ObjectTfPub.inputs:parentFrames", ["base_link"]),
+                ("ObjectTfPub.inputs:childFrames", ["grasp_target"]),
+                ("ObjectTfPub.inputs:translations", [_obj_trans]),
+                ("ObjectTfPub.inputs:orientations", [_obj_quat]),
             ],
         },
     )
@@ -539,6 +588,11 @@ SimulationManager.setup_simulation(dt=1.0 / 60.0, device="cpu")
 
 app_utils.play()
 simulation_app.update()
+
+# 物理抓取：真夹爪靠手指对夹 + 摩擦力（close 驱动 gripper_r_joint1 → 手指合拢夹瓶侧），不用
+# SurfaceGripper 吸附（吸盘机制，isaac 特有、real 没有）。桥只管 isaac↔ROS2 桥接（joint
+# states/commands/camera/TF）；夹爪物理由 OG ArticulationControllerG 写关节 + isaac_gripper_action
+# 节点驱动。抓取位姿/摩擦见 demo_grasp。
 
 try:
     while simulation_app.is_running():

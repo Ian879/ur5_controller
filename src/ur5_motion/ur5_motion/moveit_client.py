@@ -23,6 +23,7 @@ import threading
 from typing import Optional, Sequence
 
 import rclpy
+from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 
@@ -35,6 +36,8 @@ JOINT_NAMES = [
     "wrist_2_joint",
     "wrist_3_joint",
 ]
+# SRDF 命名位姿 home（ur_manipulator/home）：pan/lift/elbow/wrist1/2/3
+HOME_JOINTS = [0.0, -1.5707, 0.0, 0.0, 0.0, 0.0]
 BASE_LINK = "base_link"
 END_EFFECTOR = "tool0"
 GROUP_NAME = "ur_manipulator"
@@ -43,9 +46,18 @@ GROUP_NAME = "ur_manipulator"
 class UR5MoveIt:
     """对 pymoveit2.MoveIt2 的同步封装。"""
 
-    def __init__(self, node: Optional[Node] = None, *, node_name: str = "ur5_moveit_client"):
+    def __init__(self, node: Optional[Node] = None, *, node_name: str = "ur5_moveit_client",
+                 use_sim_time: bool = False):
         self._owns_node = node is None
-        self.node = node if node is not None else rclpy.create_node(node_name)
+        if node is None:
+            # use_sim_time 必须在节点创建时生效（影响 clock）。Isaac 后端要 True，否则 TF
+            # lookup（sim 时戳）与节点（wall 时钟）时域不匹配 → base_link→fp_object 永远超时。
+            from rclpy.parameter import Parameter
+            node = rclpy.create_node(
+                node_name,
+                parameter_overrides=[Parameter("use_sim_time", value=use_sim_time)],
+            )
+        self.node = node
         self._log = self.node.get_logger()
 
         # 延迟导入：pymoveit2 需 apt 安装（见 README）；未装时报清晰错误
@@ -62,6 +74,12 @@ class UR5MoveIt:
             base_link_name=BASE_LINK,
             end_effector_name=END_EFFECTOR,
             group_name=GROUP_NAME,
+            # ⚠️ ReentrantCallbackGroup（治本）：pymoveit2 默认 callback_group=None → 用 node
+            # default（MutuallyExclusive）。MultiThreadedExecutor 对互斥组只单线程串行跑 callback；
+            # 若该组唯一执行槽被某 callback 占着，get/apply_planning_scene 的 service response 排不上
+            # → allow_collisions 内部同步 .call() 的 event.wait() 永久阻塞（demo 第4步卡死根因）。
+            # Reentrant 解除串行，service response 可被 executor 任一线程即时派发。
+            callback_group=ReentrantCallbackGroup(),
             # 由 move_group 负责执行（下发到激活的轨迹控制器）。
             # use_move_group_action 是新参数名（旧的 execute_via_moveit 已弃用）。
             use_move_group_action=True,
@@ -78,8 +96,8 @@ class UR5MoveIt:
         # 末端直线接近（抓取 approach）首期仍用 OMPL 关节空间；要强制 LIN 直线需切 pilz
         # pipeline——pymoveit2 不直接暴露 pipeline 选择，作为后续优化。
         self._moveit.planner_id = ""
-        self._moveit.max_velocity = 0.5
-        self._moveit.max_acceleration = 0.5
+        self._moveit.max_velocity = 0.2   # 真夹爪夹瓶子后 retreat 物理阻力大，降速避跟踪失败(-4)
+        self._moveit.max_acceleration = 0.2
 
         # 后台 spin：pymoveit2 的 action client 需要持续 spin 才能收结果
         self._executor = MultiThreadedExecutor()
@@ -98,23 +116,32 @@ class UR5MoveIt:
         self._moveit.move_to_configuration(list(joint_positions))
         self._wait_executed("move_to_joint")
 
+    def go_home(self) -> None:
+        """移到 SRDF home 位姿（[0,-π/2,0,0,0,0]）。快速复位用。"""
+        self.move_to_joint(HOME_JOINTS)
+
     def move_to_pose(
         self,
         position: Sequence[float],
         quat_xyzw: Sequence[float],
         frame_id: str = BASE_LINK,
+        cartesian: bool = False,
     ) -> None:
         """规划并执行到 base_link（默认）下的笛卡尔位姿。阻塞到执行完成。
 
         position: [x, y, z]（米）
         quat_xyzw: [qx, qy, qz, qw]（单位四元数）
+        cartesian: True → 末端走直线（pre→grasp 直下 / retreat 直上，不绕圈撞物体）；
+                   False → OMPL 关节空间（home→pre 等自由空间绕障用，默认）。
         """
         self._log.info(
             f"move_to_pose: pos={[round(p, 3) for p in position]} "
             f"quat_xyzw={[round(q, 3) for q in quat_xyzw]} frame={frame_id}"
+            f"{' [CARTESIAN]' if cartesian else ''}"
         )
         self._moveit.move_to_pose(
-            position=list(position), quat_xyzw=list(quat_xyzw), frame_id=frame_id
+            position=list(position), quat_xyzw=list(quat_xyzw), frame_id=frame_id,
+            cartesian=cartesian,
         )
         self._wait_executed("move_to_pose")
 
@@ -163,6 +190,80 @@ class UR5MoveIt:
         """解除 attach（放下物体）。"""
         self._moveit.detach_collision_object(id=name)
 
+    def allow_collisions(self, name: str, allow: bool, timeout: float = 8.0) -> bool:
+        """允许/禁止 name 物体和所有 link 碰撞（ACM）。grasp 前 allow=True 让夹爪能碰物体 box；
+        retreat 后 allow=False 恢复。ACM 逻辑照搬 pymoveit2 4.2 (moveit2.py:1864-1886)。
+
+        ⚠️ 用【独立 node + 独立 executor】调 get/apply_planning_scene，不挂 arm.node。实测挂在
+        arm.node 上的 pymoveit2 _get_planning_scene_service，call_async 的 response 不被 arm 的
+        MultiThreadedExecutor 派发（同一 executor 下 pre-grasp 的 move_action 却能派发——疑 pymoveit2
+        内部在 reentrant 组留了阻塞 callback，饿死 service response），get_planning_scene 5s 超时 →
+        ACM 没设 → grasp goal 撞 box → OMPL "Unable to sample any valid states for goal tree"。
+        独立 SingleThreadedExecutor（helper node 干净、无竞争 callback）确定性可派发，一刀切绕开。"""
+        import threading
+        from rclpy.executors import SingleThreadedExecutor
+        from moveit_msgs.msg import AllowedCollisionEntry
+        from moveit_msgs.srv import ApplyPlanningScene, GetPlanningScene
+
+        helper = rclpy.create_node("ur5_acm_helper")
+        exe = SingleThreadedExecutor()
+        exe.add_node(helper)
+        spin_th = threading.Thread(target=exe.spin, daemon=True)
+        spin_th.start()
+        try:
+            get_srv = helper.create_client(GetPlanningScene, "get_planning_scene")
+            app_srv = helper.create_client(ApplyPlanningScene, "apply_planning_scene")
+            if not get_srv.wait_for_service(timeout_sec=3.0) or not app_srv.wait_for_service(timeout_sec=3.0):
+                self._log.warn(f"allow_collisions({name},{allow}): planning_scene service 未就绪")
+                return False
+            # 1. GET 当前 scene（独立 executor spin 派发 response；主线程轮询不阻塞它）
+            get_fut = get_srv.call_async(GetPlanningScene.Request())
+            if not self._poll_future(get_fut, timeout, f"get_planning_scene({name})"):
+                return False
+            scene = get_fut.result().scene
+            # 2. 改 ACM：name ↔ 所有 entry (dis)allow（照搬 pymoveit2 4.2 allow_collisions:1864-1886）
+            acm = scene.allowed_collision_matrix
+            j = None
+            if name not in acm.entry_names:
+                acm.entry_names.append(name)
+            else:
+                j = acm.entry_names.index(name)
+            for i in range(len(acm.entry_values)):
+                if j is None:
+                    acm.entry_values[i].enabled.append(allow)
+                elif i != j:
+                    acm.entry_values[i].enabled[j] = allow
+            entry = AllowedCollisionEntry(enabled=[allow for _ in range(len(acm.entry_names))])
+            if j is None:
+                acm.entry_values.append(entry)
+            else:
+                acm.entry_values[j] = entry
+            # 3. APPLY
+            app_fut = app_srv.call_async(ApplyPlanningScene.Request(scene=scene))
+            if not self._poll_future(app_fut, timeout, f"apply_planning_scene({name})"):
+                return False
+            if app_fut.result() is not None and not app_fut.result().success:
+                self._log.warn(f"allow_collisions({name},{allow}): apply 返回 success=False")
+                return False
+            self._log.info(f"ACM 设好: {name} allow={allow}")
+            return True
+        finally:
+            exe.remove_node(helper)
+            helper.destroy_node()
+            exe.shutdown()
+
+    def _poll_future(self, fut, timeout: float, label: str) -> bool:
+        """轮询 rclpy future 到 done 或超时（主线程 sleep，不占 executor）。供 allow_collisions 的
+        call_async service 调用用——避免 pymoveit2 同步 .call() 的无限 event.wait()。"""
+        import time as _time
+        t0 = _time.time()
+        while not fut.done() and rclpy.ok():
+            if _time.time() - t0 > timeout:
+                self._log.warn(f"{label} {timeout}s 未完成（executor 未派发 service response？）")
+                return False
+            _time.sleep(0.05)
+        return fut.done()
+
     def cancel(self) -> None:
         """取消当前运动（pymoveit2 4.x 的方法是 cancel_execution）。"""
         try:
@@ -171,13 +272,28 @@ class UR5MoveIt:
             self._log.warn(f"cancel 失败: {e}")
 
     def _wait_executed(self, label: str) -> None:
-        """阻塞到执行完成；失败则抛错（让上层 try/except 可见）。"""
+        """阻塞到执行完成；失败则抛错（让上层 try/except 可见）。
+
+        失败时打印执行中断位置的关节 + error_code 含义，辅助定位（规划/碰撞/IK/执行）。"""
         ok = self._moveit.wait_until_executed()
         if not ok:
             try:
                 err = self._moveit.get_last_execution_error_code()
             except Exception:
                 err = "unknown"
+            try:
+                cur_str = [round(j, 3) for j in self.get_current_joints()]
+            except Exception:
+                cur_str = "?"
+            self._log.error(
+                f"{label} 执行失败 (error_code={err})\n"
+                f"  执行中断位置关节(rad): {cur_str}\n"
+                f"  error_code 含义: -4=CONTROL_FAILED(执行层/isaac物理碰撞卡住), "
+                f"-1=PLANNING_FAILED, -12=GOAL_IN_COLLISION, -31=NO_IK_SOLUTION, "
+                f"99999=FAILURE。\n"
+                f"  → 执行层(-4)失败：看 full_stack 终端 joint_trajectory_controller 日志"
+                f"（abort reason / tracking error），多半是 isaac 物理层夹爪碰物体被卡。"
+            )
             raise RuntimeError(f"{label} 执行失败 (error_code={err})")
 
     # ── 当前状态（便利读取，来自 joint_states）────────────────────────
