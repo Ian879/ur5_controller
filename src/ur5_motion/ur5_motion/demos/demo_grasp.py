@@ -13,11 +13,12 @@ pose source 抽象：本 demo 只认 base_link→grasp_target TF。GT pose 由�
 运行：
   终端 C：ros2 run ur5_motion demo_grasp
 
-抓取姿态说明（首期简化，参数化可调）：
-  - 顶部抓：GRASP_QUAT 绕 y 轴 π → tool0 z 朝下（world -z）。
-  - tool0→gripper_tip_tcp 偏移 GRIPPER_TIP_OFFSET（URDF 固定 TCP）。move_to_pose 移的是 tool0，
-    故 grasp 的 tool0 在物体上方 GRIPPER_TIP_OFFSET（让 gripper_tip 落到物体）。
-  - 物体近似 box（OBJECT_SIZE），圆柱瓶用包围盒。
+抓取姿态说明（对象感知，见 grasp_planner.py）：
+  - grasp 朝向不再硬编码：grasp_planner 按物体形状（GRASP_SHAPE）生成候选 → /compute_ik
+    过滤 → 选最优。圆柱体优先【侧面抓】（水平接近、对 FP z 误差不敏感），顶部抓仅兜底。
+  - tool0→gripper_tip_tcp 偏移 GRIPPER_TIP_OFFSET（URDF 固定 TCP）。move_to_pose 移的是 tool0；
+    侧抓时 tool0 在物体侧面、TCP 沿水平 reach 方向落到物体中心。
+  - 物体近似 box（OBJECT_SIZE），圆柱罐用包围盒；GRASP_PLAN_ONLY=1 只规划不执行（诊断）。
   这是规划层抓取（PlanningScene attach 跟随），验证 motion+夹爪+attach 流程；物理层真夹
   需 isaac 夹爪与物体物理碰撞（后期）。"""
 import math
@@ -31,26 +32,35 @@ from rclpy.action import ActionClient
 from std_srvs.srv import Trigger
 
 from ur5_motion import UR5MoveIt
+from ur5_motion.grasp_geometry import grasp_poses as _geo_grasp_poses
+from ur5_motion.grasp_planner import GraspPlanner
 
 # ── 抓取参数（按实际场景/物体调）────────────────────────────────────
-GRIPPER_TIP_OFFSET = 0.17127          # tool0→gripper_tip_tcp（URDF 固定 TCP）
-APPROACH_MARGIN = 0.06                # pre-grasp 时 gripper_tip 距物体「顶面」的安全余量（米）
-GRASP_QUAT = [0.0, 1.0, 0.0, 0.0]     # 顶部抓：绕 y π，tool0 z 朝下（竖直物 + 桌面 → 顶部最稳）
+GRIPPER_TIP_OFFSET = 0.17127          # tool0→gripper_tip_tcp（URDF 固定 TCP）—— 与 grasp_planner 同值
+APPROACH_MARGIN = 0.06                # pre-grasp 沿接近轴退后的安全余量（米）
+# 抓取朝向不再硬编码：由 grasp_planner 按【物体形状】生成候选（圆柱→侧面抓，盒→顶部抓），
+# 经 /compute_ik 过滤选 IK 可达且关节运动量最小的。详见 grasp_planner.py。
+GRASP_SHAPE = os.environ.get("GRASP_SHAPE", "cylinder")  # cylinder|box
+GRASP_PLAN_ONLY = os.environ.get("GRASP_PLAN_ONLY", "0") == "1"  # 只规划不执行（诊断）
+GRASP_INSPECT = os.environ.get("GRASP_INSPECT", "0") == "1"  # 到 grasp 位张开夹爪停住，看手指是否跨住物体
+# 观测朝向：tool0 z 斜指下方 ~45°（绕 y 135°）→ 相机斜看桌面，FP 看到圆柱侧面（非对称）
+LOOK_QUAT = [0.0, 0.9239, 0.0, 0.3827]  # cos(67.5°), sin(67.5°)
 OBJECT_NAME = "target_object"
 OBJECT_SIZE = [0.065, 0.065, 0.115]   # cola 罐包围盒 x,y,z（米）；0.0646×0.1152×0.0646
-# ── FP 观测位（眼在手，相机沿 tool0+z；GRASP_QUAT 时相机垂直朝下）──
+# ── FP 观测位（眼在手，相机沿 tool0+z；grasp_quat 时相机垂直朝下）──
 # 触发 FP 前先把臂移到物体上方俯视，否则 HOME 位相机朝侧方(104°)看不到物体。
 # LOOK_XY=物体大致位置先验（桌面该区域）；LOOK_TOOL0_Z=tool0 高度(base 系)，相机距物体 ~0.4m。
-LOOK_XY = [0.45, 0.05]
-LOOK_TOOL0_Z = 0.10
+LOOK_XY = [0.30, 0.0]
+LOOK_TOOL0_Z = 0.25
 LOOK_SAM_DWELL = 3.0   # 到位后等 SAM 出一帧新 mask（1Hz，等 3s 拿到 look-pose mask）
 # ── pose source：gt = 桥 USD 静态 / fp = FoundationPose 动态感知 ──
 POSE_SOURCE = os.environ.get("POSE_SOURCE", "gt")  # 环境变量切换：POSE_SOURCE=fp ros2 run ...
 GRASP_FRAME = "fp_object" if POSE_SOURCE == "fp" else "grasp_target"
-# ── use_sim_time：实测 wall 时钟(wall)下 demo 能正常读 fp_object TF（sim 时戳也能 latest 查）；
-#    反之 use_sim_time=True 时 tf listener 收不到 fp_object（疑似 executor/时钟启动顺序问题）。
-#    故默认 wall(0)。motion 在 wall 下也正常。如需 sim 时钟：USE_SIM_TIME=1。
-USE_SIM_TIME = os.environ.get("USE_SIM_TIME", "0") == "1"
+# ── use_sim_time：isaac 后端【必须】sim 时钟(1)。wall 时钟(0)下 motion 会卡死——move_group
+#    (sim 时戳) 的 action goal 响应发不回 wall 客户端（fastdds "Failed to send goal response
+#    (timeout)"），pymoveit2 wait_until_executed 永久挂。sim 时钟下 motion + FP TF 读取都正常
+#    （FP 收敛第 1 次，fp_object latest 查 OK）。真机后端用 wall：USE_SIM_TIME=0。
+USE_SIM_TIME = os.environ.get("USE_SIM_TIME", "1") == "1"
 # ── 每次跑前先复位到 home（避免上次停在观测位/抓取位）。RESET_HOME=0 跳过。
 RESET_HOME = os.environ.get("RESET_HOME", "1") != "0"
 # attach 时允许物体重叠的 link（夹爪手指等，避免 attach 后误判自碰撞）
@@ -152,20 +162,19 @@ def main():
                     time.sleep(0.2)
 
         def _pose_sane(pos):
-            """FP 位姿合理性：物体应在 look pose 视野下方（LOOK_XY 附近、桌面高度）。
-            FP 对俯视对称物收敛不稳——有时 x 漂到 base 原点(0)或 z 漂到桌下(-0.9)。
-            用 look pose 的 xy 做先验框（相机正对着物体，物体必在视野下方附近）。"""
+            """FP 位姿合理性：物体在桌面上（不是 base 原点(0,0)或桌下(-0.9)）。
+            用桌面工作空间范围做合理性框（不依赖相机位置——斜视时相机≠物体正上方）。"""
             if pos is None:
                 return False
-            return (abs(pos[0] - LOOK_XY[0]) < 0.20 and   # 物体在 look xy ±0.2m
-                    abs(pos[1] - LOOK_XY[1]) < 0.20 and
-                    -0.58 < pos[2] < -0.15)               # 桌面高度（base z ~-0.4）
+            return (0.25 < pos[0] < 0.65 and   # 桌面 x 范围（不是 0=base 原点）
+                    abs(pos[1]) < 0.25 and      # 桌面 y 范围
+                    -0.58 < pos[2] < -0.15)     # 桌面高度（base z ~-0.4）
 
         obj_pos = obj_quat = None
         if POSE_SOURCE == "fp":
             # 0. 移到观测位（眼在手，HOME 相机朝侧方看不到物体）
             log.info(f"0/9 移到观测位 tool0={LOOK_XY}+z{LOOK_TOOL0_Z}（相机俯视物体）")
-            arm.move_to_pose([LOOK_XY[0], LOOK_XY[1], LOOK_TOOL0_Z], GRASP_QUAT)
+            arm.move_to_pose([LOOK_XY[0], LOOK_XY[1], LOOK_TOOL0_Z], LOOK_QUAT)
             log.info(f"   到位，等 {LOOK_SAM_DWELL}s 让 mask 出 look-pose ...")
             time.sleep(LOOK_SAM_DWELL)
             fp_cli = arm.node.create_client(Trigger, "/foundationpose/track")
@@ -210,51 +219,64 @@ def main():
                 return
         log.info(f"物体位姿(base): pos={[round(v,3) for v in obj_pos]} quat={[round(v,3) for v in obj_quat]}")
 
-        # 抓取位姿算术（顶部抓，沿 world +z）：
-        #   grasp：gripper_tip 落到物体中心（手指夹瓶身中段）→ tool0 在中心上方 GRIPPER_TIP_OFFSET。
-        #   pre  ：gripper_tip 退到物体「顶面」(= 中心 + 半高) 上方 APPROACH_MARGIN。
-        # ⚠️ pre 必须高过顶面：旧 APPROACH_DIST=0.10 < 半高 0.11，pre tip 反插进刚加的物体 box
-        #   顶 1cm → goal_in_collision → move_group ABORT(99999)，step3 直接挂。改用「顶面+余量」。
-        half_h = OBJECT_SIZE[2] / 2.0
-        # 顶部接近（竖直物 + 桌面 → 最稳）：tool0 z 朝下（绕 y π），finger 水平 ±x 夹物体侧面。
-        # arm 在物体上方（不经过物体侧面）→ 不碰 box（侧面 arm 必碰物体，已验证）。
-        # GRASP_DEPTH=0.04：finger 到物体身上部，本体(base)在瓶顶上方不碰。之前顶部已验证夹到+close 成功。
-        # retreat 靠柔顺 drive（joint1 stiffness 2000/maxForce 15，fix_gripper_drive 修过）避崩。
-        GRASP_DEPTH = 0.0   # cola 罐矮(0.115m)，finger 在中心=稳夹；之前 bottle 0.22m 用 0.04
-        grasp = [obj_pos[0], obj_pos[1], obj_pos[2] + GRASP_DEPTH + GRIPPER_TIP_OFFSET]
-        pre = [obj_pos[0], obj_pos[1], obj_pos[2] + half_h + APPROACH_MARGIN + GRIPPER_TIP_OFFSET]
-        # place（放置点，顶部）：夹住后移到这里松开。改 PLACE_XY 换放置位置（base 系 xy）。
+        # ── 抓取规划（对象感知）：圆柱体优先【侧面抓】（水平接近，对 FP z 误差不敏感）──
+        # grasp_planner 生成多方位候选 → /compute_ik 过滤（pick_ik 自动遵循 shoulder_lift 限位）
+        # → 选 IK 可达且关节运动量最小的。返回的候选含 tool0 grasp/pre 位姿 + 接近方向 reach。
+        planner = GraspPlanner(log=log)
+        if not planner.wait_ready():
+            return
+        cand = planner.plan(obj_pos, OBJECT_SIZE, shape=GRASP_SHAPE)
+
+        def _poses_for(obj_pos_):
+            """物体位姿 + 当前候选的 reach/quat → (tool0_grasp, tool0_pre)。可对再观测的新位姿重算。"""
+            return _geo_grasp_poses(obj_pos_, cand.reach, cand.quat)
+
+        grasp_quat = cand.quat                # 选中的 tool0 朝向（侧抓=水平 / 兜底=朝下）
+        grasp, pre = _poses_for(obj_pos)
+        # place：同朝向放到 PLACE_XY（TCP 落到与物体同高的放置点，沿 reach 接近/退避）
         PLACE_XY = [0.40, -0.30]
-        place_pre = [PLACE_XY[0], PLACE_XY[1], obj_pos[2] + half_h + APPROACH_MARGIN + GRIPPER_TIP_OFFSET]
-        place = [PLACE_XY[0], PLACE_XY[1], obj_pos[2] + GRASP_DEPTH + GRIPPER_TIP_OFFSET]
+        a = cand.reach
+        pc = [PLACE_XY[0], PLACE_XY[1], obj_pos[2]]
+        off = GRIPPER_TIP_OFFSET
+        place = [float(pc[0] - off * a[0]), float(pc[1] - off * a[1]), float(pc[2] - off * a[2])]
+        offp = GRIPPER_TIP_OFFSET + APPROACH_MARGIN
+        place_pre = [float(pc[0] - offp * a[0]), float(pc[1] - offp * a[1]), float(pc[2] - offp * a[2])]
+        planner.shutdown()  # 规划完释放（/compute_ik 客户端不再需要；后续纯运动）
+        if GRASP_PLAN_ONLY:
+            log.info("GRASP_PLAN_ONLY=1：只规划不执行，退出。")
+            return
 
         try:
             log.info("1/9 张开夹爪")
             gripper.open()
-            log.info(f"2/9 加物体 box（避 home→pre 路径撞物体）")
+            log.info(f"2/9 加物体 box + allow_collisions（侧抓 pre 在盒侧同高，须先 allow 否则 OMPL 末段碰盒）")
             arm.add_box(OBJECT_NAME, position=obj_pos, size=OBJECT_SIZE, quat_xyzw=obj_quat)
+            arm.allow_collisions(OBJECT_NAME, True)  # 侧抓：pre-grasp 紧贴盒侧，先 allow 才规划得过去
             time.sleep(1.0)
             log.info(f"3/9 pre-grasp -> {[round(v,3) for v in pre]}")
-            arm.move_to_pose(pre, GRASP_QUAT)
-            log.info("4/9 allow_collisions(物体,True)——grasp 时夹爪碰物体不判碰撞")
-            arm.allow_collisions(OBJECT_NAME, True)
-            time.sleep(0.3)
-            log.info(f"5/9 grasp -> {[round(v,3) for v in grasp]} [CARTESIAN 直下]")
-            arm.move_to_pose(grasp, GRASP_QUAT, cartesian=True)
+            arm.move_to_pose(pre, grasp_quat)
+            log.info(f"4/9 grasp -> {[round(v,3) for v in grasp]} [CARTESIAN 直进]")
+            arm.move_to_pose(grasp, grasp_quat, cartesian=True)
+            if GRASP_INSPECT:
+                log.info("GRASP_INSPECT: 停在 grasp 位（夹爪张开）— 看手指是否跨住可乐 vs 跨偏了。"
+                         "看完记下方向，Ctrl-C 退出。")
+                while rclpy.ok():
+                    time.sleep(1.0)
+                return
             log.info("6/9 attach + 闭合夹爪（MoveIt 规划层 attach；真夹爪物理夹持）")
             arm.attach_object(OBJECT_NAME, link_name="gripper_tip_tcp", touch_links=TOUCH_LINKS)
             gripper.close()  # 真夹爪物理夹持：手指合拢夹瓶侧（碰阻力→超时正常，move 返回 False 不抛）
             time.sleep(2.0)  # 等 close 物理收敛（接触/摩擦稳定）再 retreat，避 retreat 跟踪失败(-4)
-            log.info(f"7/9 retreat [CARTESIAN 直上，带物体]")
-            arm.move_to_pose(pre, GRASP_QUAT, cartesian=True)
+            log.info(f"7/9 retreat [OMPL 关节空间，带物体]")
+            arm.move_to_pose(pre, grasp_quat, cartesian=False)
             log.info(f"8/9 移到 place 上方 -> {PLACE_XY}（带物体，OMPL 绕障）")
-            arm.move_to_pose(place_pre, GRASP_QUAT)
-            log.info(f"9/9 下探 place -> {[round(v,3) for v in place]} [CARTESIAN 直下]")
-            arm.move_to_pose(place, GRASP_QUAT, cartesian=True)
+            arm.move_to_pose(place_pre, grasp_quat)
+            log.info(f"9/9 接近 place -> {[round(v,3) for v in place]} [CARTESIAN 直进]")
+            arm.move_to_pose(place, grasp_quat, cartesian=True)
             gripper.open()  # place 松开，物体放下
             time.sleep(1.0)
-            log.info("retreat 离开 place [CARTESIAN 直上]")
-            arm.move_to_pose(place_pre, GRASP_QUAT, cartesian=True)
+            log.info("retreat 离开 place [CARTESIAN 退避]")
+            arm.move_to_pose(place_pre, grasp_quat, cartesian=True)
             log.info("收尾: detach + disallow + 清理")
             arm.detach_object(OBJECT_NAME)
             arm.allow_collisions(OBJECT_NAME, False)
