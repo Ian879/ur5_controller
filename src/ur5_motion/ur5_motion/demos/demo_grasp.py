@@ -228,8 +228,12 @@ def main():
         cand = planner.plan(obj_pos, OBJECT_SIZE, shape=GRASP_SHAPE)
 
         def _poses_for(obj_pos_):
-            """物体位姿 + 当前候选的 reach/quat → (tool0_grasp, tool0_pre)。可对再观测的新位姿重算。"""
-            return _geo_grasp_poses(obj_pos_, cand.reach, cand.quat)
+            """物体位姿 + 当前候选 reach/quat → (tool0_grasp, tool0_pre)。可对再观测的新位姿重算。"""
+            grasp, pre = _geo_grasp_poses(obj_pos_, cand.reach, cand.quat)
+            if cand.kind == "top":
+                # 顶部兜底的 pre 须在物体顶面上方（grasp_poses 不含 half_h，补上）
+                pre = [pre[0], pre[1], pre[2] + OBJECT_SIZE[2] / 2.0]
+            return grasp, pre
 
         grasp_quat = cand.quat                # 选中的 tool0 朝向（侧抓=水平 / 兜底=朝下）
         grasp, pre = _poses_for(obj_pos)
