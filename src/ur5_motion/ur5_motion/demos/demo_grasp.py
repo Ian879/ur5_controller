@@ -259,6 +259,21 @@ def main():
             time.sleep(1.0)
             log.info(f"3/9 pre-grasp -> {[round(v,3) for v in pre]}")
             arm.move_to_pose(pre, grasp_quat)
+            # ── 再观测（Eye-in-Hand 闭环）：pre-grasp 处近距离再跑一次 FP，修正最终抓取位 ──
+            if POSE_SOURCE == "fp":
+                log.info("pre-grasp 到位，重新触发 FP 修正最终抓取位 ...")
+                fp_cli.call_async(Trigger.Request())          # 复用已建的 /foundationpose/track client
+                res = _read_pose(35.0)                         # 复用现有 TF 轮询
+                obj_pos2 = res[0] if res else None
+                if obj_pos2 is not None and _pose_sane(obj_pos2):
+                    log.info(f"再观测修正：{[round(v,3) for v in obj_pos2]}"
+                             f"（漂移 {[round(obj_pos2[i]-obj_pos[i],3) for i in range(3)]}）")
+                    grasp, pre = _poses_for(obj_pos2)          # 用新位姿重算 grasp/pre
+                else:
+                    log.warn("再观测未收敛，沿用首次位姿")
+                    obj_pos2 = obj_pos                          # fallback：保证 obj_pos2 始终有定义
+            else:
+                obj_pos2 = obj_pos                              # GT 路径无再观测
             log.info(f"4/9 grasp -> {[round(v,3) for v in grasp]} [CARTESIAN 直进]")
             arm.move_to_pose(grasp, grasp_quat, cartesian=True)
             if GRASP_INSPECT:
