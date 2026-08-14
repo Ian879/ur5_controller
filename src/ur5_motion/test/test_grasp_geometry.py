@@ -29,3 +29,18 @@ def test_grasp_poses_tcp_lands_on_object_center():
     tcp = np.array(grasp) + GRIPPER_TIP_OFFSET * a
     assert np.allclose(tcp, obj, atol=1e-6)
     assert np.allclose(np.array(pre), np.array(grasp) - APPROACH_MARGIN * a, atol=1e-6)
+
+from ur5_motion.grasp_geometry import grasp_cost
+
+def test_grasp_cost_penalizes_wrist_rotation():
+    seed = [0, -0.8, 0, 0, 0, 0]
+    sol_small_wrist = [0.1, -0.9, 0.1, 0.1, 0.1, 0.05]
+    sol_big_wrist =   [0.1, -0.9, 0.1, 0.1, 0.1, 3.0]   # same arm, huge wrist_3
+    c1 = grasp_cost(sol_small_wrist, seed, tilt=0.5)
+    c2 = grasp_cost(sol_big_wrist, seed, tilt=0.5)
+    assert c2 > c1 * 2
+
+def test_grasp_cost_prefers_shallower_tilt():
+    seed = [0, -0.8, 0, 0, 0, 0]
+    sol = [0.1, -0.9, 0.1, 0.1, 0.1, 0.0]
+    assert grasp_cost(sol, seed, tilt=0.2) < grasp_cost(sol, seed, tilt=1.2)

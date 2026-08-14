@@ -54,3 +54,14 @@ def grasp_poses(obj_pos: Sequence[float], reach: Sequence[float],
     grasp = (obj - GRIPPER_TIP_OFFSET * a).tolist()
     pre = (obj - (GRIPPER_TIP_OFFSET + APPROACH_MARGIN) * a).tolist()
     return grasp, pre
+
+
+def grasp_cost(sol: Sequence[float], seed: Sequence[float], tilt: float, *,
+               w_dist: float = 1.0, w_wrist: float = 0.5, w_tilt: float = 2.0) -> float:
+    """多因子 cost：关节运动量 + wrist_3 旋转 + 倾角。小 = 好。wrist_3 单独罚（防乱转）。"""
+    sol = np.asarray(sol, float); seed = np.asarray(seed, float)
+    dist = float(np.sum((sol[:5] - seed[:5]) ** 2))
+    wrist = float(abs(sol[5] - seed[5]))
+    wrist = abs((wrist + math.pi) % (2 * math.pi) - math.pi)   # 包到 [-π,π] 距离
+    tilt_pen = abs(tilt) / (math.pi / 2)
+    return w_dist * dist + w_wrist * wrist + w_tilt * tilt_pen
