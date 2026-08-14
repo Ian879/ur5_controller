@@ -37,7 +37,7 @@ JOINT_NAMES = [
     "wrist_3_joint",
 ]
 # SRDF 命名位姿 home（ur_manipulator/home）：pan/lift/elbow/wrist1/2/3
-HOME_JOINTS = [0.0, -1.5707, 0.0, 0.0, 0.0, 0.0]
+HOME_JOINTS = [0.0, -0.7854, 0.0, 0.0, 0.0, 0.0]  # shoulder_lift=-45°（原 -90°）
 BASE_LINK = "base_link"
 END_EFFECTOR = "tool0"
 GROUP_NAME = "ur_manipulator"
@@ -98,6 +98,7 @@ class UR5MoveIt:
         self._moveit.planner_id = ""
         self._moveit.max_velocity = 0.2   # 真夹爪夹瓶子后 retreat 物理阻力大，降速避跟踪失败(-4)
         self._moveit.max_acceleration = 0.2
+        self._moveit.allowed_planning_time = 5.0  # OMPL 默认太短(~0.5s)→"Unable to solve"
 
         # 后台 spin：pymoveit2 的 action client 需要持续 spin 才能收结果
         self._executor = MultiThreadedExecutor()
@@ -321,6 +322,21 @@ class UR5MoveIt:
         msg = holder["msg"]
         name_to_pos = dict(zip(msg.name, msg.position))
         return [name_to_pos.get(n, 0.0) for n in JOINT_NAMES]
+
+    def get_tool0_pose(self):
+        """读当前 tool0 在 base_link 的 (pos, quat_xyzw)。供 decomposed place 的相对移动用。"""
+        import time as _time
+        import tf2_ros
+        buf = tf2_ros.Buffer()
+        tf2_ros.TransformListener(buf, self.node)
+        for _ in range(50):
+            try:
+                t = buf.lookup_transform("base_link", "tool0", rclpy.time.Time())
+                tr = t.transform.translation; ro = t.transform.rotation
+                return [tr.x, tr.y, tr.z], [ro.x, ro.y, ro.z, ro.w]
+            except tf2_ros.TransformException:
+                _time.sleep(0.02)
+        raise RuntimeError("tool0 TF 查不到（base_link→tool0 1s 内无数据）")
 
     # ── 生命周期 ──────────────────────────────────────────────────────
     def shutdown(self) -> None:
