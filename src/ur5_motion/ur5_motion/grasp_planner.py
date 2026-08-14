@@ -5,18 +5,19 @@
       过滤（pick_ik 自动遵循 joint_limits_pilz.yaml 的 shoulder_lift 等限位）。
 
 为什么圆柱体优先【侧面抓】而非顶部抓：
-  - 侧面抓 = 水平接近，手指夹罐身中段。接近平面是水平的 → 只依赖 FP 的 xy 精度（够用），
-    对 FP 的 z 误差（实测 ~10cm）不敏感——水平直进在罐身任意高度都能夹到，不会因 z 偏而
-    撞桌/扑空。
+  - 侧抓（含下倾角，避夹爪扎桌面）对 FP 的 z 误差（实测 ~10cm）不敏感——手指夹罐身中段，
+    接近平面接近水平 → 主要依赖 FP 的 xy 精度（够用），小幅下倾在罐身任意高度都能夹到，
+    不会因 z 偏而撞桌/扑空。
   - 顶部抓 = 垂直下探，依赖精确知道桌面/罐顶 z；FP z 偏 10cm → 直接撞桌散架（已踩坑）。
-  故圆柱体先生成 8 方位侧面候选，顶部候选仅作兜底（所有侧抓 IK 不可达时才用）。
+  故圆柱体先生成 8 方位 × 4 下倾角的侧面候选（+ 1 顶部兜底），顶部候选仅当所有侧抓
+  IK 不可达时才用。
 
 夹爪几何（来自 ur5_with_gripper.urdf.xacro + gripper_macro.xacro，实测无转角）：
   - tool0→gripper_base 纯 Z 平移 0.01267，无旋转 → 夹爪轴系与 tool0 对齐。
   - tool0→gripper_tip_tcp 纯 Z 平移 GRIPPER_TIP_OFFSET=0.17127（手指夹角净 0）。
   - 两指在 tool0 ±x（base x=±0.025）→ 手指夹合方向 = tool0 X 轴。
   - 夹爪「伸够」方向 = tool0 +Z（TCP 沿 +Z 在 tool0 前方）。
-由这些约定推侧面抓朝向（见 _quat_from_reach）：reach 方向 a（水平）= tool0+Z 在 world 的指向；
+由这些约定推侧面抓朝向（见 grasp_geometry.quat_from_reach）：reach 方向 a（水平）= tool0+Z 在 world 的指向；
   tool0-X 取 world-up × a（水平、⊥ a）→ 手指水平夹合，正好夹垂直圆柱的腰部。
 
 用法（demo 内嵌）::

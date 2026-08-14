@@ -16,8 +16,8 @@ pose source 抽象：本 demo 只认 base_link→grasp_target TF。GT pose 由�
 抓取姿态说明（对象感知，见 grasp_planner.py）：
   - grasp 朝向不再硬编码：grasp_planner 按物体形状（GRASP_SHAPE）生成候选 → /compute_ik
     过滤 → 选最优。圆柱体优先【侧面抓】（水平接近、对 FP z 误差不敏感），顶部抓仅兜底。
-  - tool0→gripper_tip_tcp 偏移 GRIPPER_TIP_OFFSET（URDF 固定 TCP）。move_to_pose 移的是 tool0；
-    侧抓时 tool0 在物体侧面、TCP 沿水平 reach 方向落到物体中心。
+  - tool0→gripper_tip_tcp 偏移由 grasp_geometry.GRIPPER_TIP_OFFSET（URDF 固定 TCP）给出。move_to_pose
+    移的是 tool0；侧抓时 tool0 在物体侧面、TCP 沿水平 reach 方向落到物体中心。
   - 物体近似 box（OBJECT_SIZE），圆柱罐用包围盒；GRASP_PLAN_ONLY=1 只规划不执行（诊断）。
   这是规划层抓取（PlanningScene attach 跟随），验证 motion+夹爪+attach 流程；物理层真夹
   需 isaac 夹爪与物体物理碰撞（后期）。"""
@@ -36,8 +36,8 @@ from ur5_motion.grasp_geometry import grasp_poses as _geo_grasp_poses, APPROACH_
 from ur5_motion.grasp_planner import GraspPlanner
 
 # ── 抓取参数（按实际场景/物体调）────────────────────────────────────
-GRIPPER_TIP_OFFSET = 0.17127          # tool0→gripper_tip_tcp（URDF 固定 TCP）—— 与 grasp_planner 同值
-# APPROACH_MARGIN 改从 grasp_geometry 导入（单一来源，与 grasp_poses 的 pre 计算同值 0.06）
+# GRIPPER_TIP_OFFSET / APPROACH_MARGIN 从 grasp_geometry 导入（单一来源，与 grasp_poses 的
+# pre 计算同值 0.06；TCP 偏移经 _geo_grasp_poses 在 grasp_geometry 内部使用）。
 # 抓取朝向不再硬编码：由 grasp_planner 按【物体形状】生成候选（圆柱→侧面抓，盒→顶部抓），
 # 经 /compute_ik 过滤选 IK 可达且关节运动量最小的。详见 grasp_planner.py。
 GRASP_SHAPE = os.environ.get("GRASP_SHAPE", "cylinder")  # cylinder|box
@@ -173,7 +173,7 @@ def main():
         obj_pos = obj_quat = None
         if POSE_SOURCE == "fp":
             # 0. 移到观测位（眼在手，HOME 相机朝侧方看不到物体）
-            log.info(f"0/9 移到观测位 tool0={LOOK_XY}+z{LOOK_TOOL0_Z}（相机俯视物体）")
+            log.info(f"移到观测位 tool0={LOOK_XY}+z{LOOK_TOOL0_Z}（相机俯视物体）")
             arm.move_to_pose([LOOK_XY[0], LOOK_XY[1], LOOK_TOOL0_Z], LOOK_QUAT)
             log.info(f"   到位，等 {LOOK_SAM_DWELL}s 让 mask 出 look-pose ...")
             time.sleep(LOOK_SAM_DWELL)
@@ -244,13 +244,13 @@ def main():
             return
 
         try:
-            log.info("1/9 张开夹爪")
+            log.info("张开夹爪")
             gripper.open()
-            log.info(f"2/9 加物体 box + allow_collisions（侧抓 pre 在盒侧同高，须先 allow 否则 OMPL 末段碰盒）")
+            log.info(f"加物体 box + allow_collisions（侧抓 pre 在盒侧同高，须先 allow 否则 OMPL 末段碰盒）")
             arm.add_box(OBJECT_NAME, position=obj_pos, size=OBJECT_SIZE, quat_xyzw=obj_quat)
             arm.allow_collisions(OBJECT_NAME, True)  # 侧抓：pre-grasp 紧贴盒侧，先 allow 才规划得过去
             time.sleep(1.0)
-            log.info(f"3/9 pre-grasp -> {[round(v,3) for v in pre]}")
+            log.info(f"pre-grasp -> {[round(v,3) for v in pre]}")
             arm.move_to_pose(pre, grasp_quat)
             # ── 再观测（Eye-in-Hand 闭环）：pre-grasp 处近距离再跑一次 FP，修正最终抓取位 ──
             if POSE_SOURCE == "fp":
@@ -267,7 +267,7 @@ def main():
                     obj_pos2 = obj_pos                          # fallback：保证 obj_pos2 始终有定义
             else:
                 obj_pos2 = obj_pos                              # GT 路径无再观测
-            log.info(f"4/9 grasp -> {[round(v,3) for v in grasp]} [CARTESIAN 直进]")
+            log.info(f"grasp -> {[round(v,3) for v in grasp]} [CARTESIAN 直进]")
             arm.move_to_pose(grasp, grasp_quat, cartesian=True)
             if GRASP_INSPECT:
                 log.info("GRASP_INSPECT: 停在 grasp 位（夹爪张开）— 看手指是否跨住可乐 vs 跨偏了。"
@@ -275,7 +275,7 @@ def main():
                 while rclpy.ok():
                     time.sleep(1.0)
                 return
-            log.info("6/9 attach + 闭合夹爪（MoveIt 规划层 attach；真夹爪物理夹持）")
+            log.info("attach + 闭合夹爪（MoveIt 规划层 attach；真夹爪物理夹持）")
             arm.attach_object(OBJECT_NAME, link_name="gripper_tip_tcp", touch_links=TOUCH_LINKS)
             gripper.close()  # 真夹爪物理夹持：手指合拢夹瓶侧（碰阻力→超时正常，move 返回 False 不抛）
             time.sleep(2.0)  # 等 close 物理收敛（接触/摩擦稳定）再 retreat，避 retreat 跟踪失败(-4)
