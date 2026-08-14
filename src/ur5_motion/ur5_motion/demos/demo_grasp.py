@@ -32,12 +32,12 @@ from rclpy.action import ActionClient
 from std_srvs.srv import Trigger
 
 from ur5_motion import UR5MoveIt
-from ur5_motion.grasp_geometry import grasp_poses as _geo_grasp_poses
+from ur5_motion.grasp_geometry import grasp_poses as _geo_grasp_poses, APPROACH_MARGIN
 from ur5_motion.grasp_planner import GraspPlanner
 
 # ── 抓取参数（按实际场景/物体调）────────────────────────────────────
 GRIPPER_TIP_OFFSET = 0.17127          # tool0→gripper_tip_tcp（URDF 固定 TCP）—— 与 grasp_planner 同值
-APPROACH_MARGIN = 0.06                # pre-grasp 沿接近轴退后的安全余量（米）
+# APPROACH_MARGIN 改从 grasp_geometry 导入（单一来源，与 grasp_poses 的 pre 计算同值 0.06）
 # 抓取朝向不再硬编码：由 grasp_planner 按【物体形状】生成候选（圆柱→侧面抓，盒→顶部抓），
 # 经 /compute_ik 过滤选 IK 可达且关节运动量最小的。详见 grasp_planner.py。
 GRASP_SHAPE = os.environ.get("GRASP_SHAPE", "cylinder")  # cylinder|box
@@ -237,14 +237,7 @@ def main():
 
         grasp_quat = cand.quat                # 选中的 tool0 朝向（侧抓=水平 / 兜底=朝下）
         grasp, pre = _poses_for(obj_pos)
-        # place：同朝向放到 PLACE_XY（TCP 落到与物体同高的放置点，沿 reach 接近/退避）
-        PLACE_XY = [0.40, -0.30]
-        a = cand.reach
-        pc = [PLACE_XY[0], PLACE_XY[1], obj_pos[2]]
-        off = GRIPPER_TIP_OFFSET
-        place = [float(pc[0] - off * a[0]), float(pc[1] - off * a[1]), float(pc[2] - off * a[2])]
-        offp = GRIPPER_TIP_OFFSET + APPROACH_MARGIN
-        place_pre = [float(pc[0] - offp * a[0]), float(pc[1] - offp * a[1]), float(pc[2] - offp * a[2])]
+        PLACE_XY = [0.40, -0.30]              # 放置点 xy（base 系）；decomposed place 段用
         planner.shutdown()  # 规划完释放（/compute_ik 客户端不再需要；后续纯运动）
         if GRASP_PLAN_ONLY:
             log.info("GRASP_PLAN_ONLY=1：只规划不执行，退出。")
@@ -286,16 +279,30 @@ def main():
             arm.attach_object(OBJECT_NAME, link_name="gripper_tip_tcp", touch_links=TOUCH_LINKS)
             gripper.close()  # 真夹爪物理夹持：手指合拢夹瓶侧（碰阻力→超时正常，move 返回 False 不抛）
             time.sleep(2.0)  # 等 close 物理收敛（接触/摩擦稳定）再 retreat，避 retreat 跟踪失败(-4)
-            log.info(f"7/9 retreat [OMPL 关节空间，带物体]")
-            arm.move_to_pose(pre, grasp_quat, cartesian=False)
-            log.info(f"8/9 移到 place 上方 -> {PLACE_XY}（带物体，OMPL 绕障）")
-            arm.move_to_pose(place_pre, grasp_quat)
-            log.info(f"9/9 接近 place -> {[round(v,3) for v in place]} [CARTESIAN 直进]")
+            # ── decomposed place：短段拆开，OMPL 只管自由空间搬运 ──
+            LIFT_Z = 0.20          # 抬离桌面高度
+            TRANSPORT_Z = 0.30     # 安全搬运高度（base 系 z）
+            # 1) 沿接近轴退 + 上抬（笛卡尔，带物体）
+            pos, _q = arm.get_tool0_pose()
+            a = cand.reach
+            retreat = [pos[0] - APPROACH_MARGIN * a[0],
+                       pos[1] - APPROACH_MARGIN * a[1],
+                       pos[2] + LIFT_Z]
+            log.info("退避+抬离 [CARTESIAN]")
+            arm.move_to_pose(retreat, grasp_quat, cartesian=True)
+            # 2) 安全搬运到 place 上方（OMPL 关节空间，自由空间，带物体）
+            transport = [PLACE_XY[0], PLACE_XY[1], TRANSPORT_Z]
+            log.info(f"搬运到 place 上方 {PLACE_XY} [OMPL]")
+            arm.move_to_pose(transport, grasp_quat, cartesian=False)
+            # 3) 笛卡尔下探到 place（TCP 落 place 点，同高）
+            place, _ = _poses_for([PLACE_XY[0], PLACE_XY[1], obj_pos2[2]])
+            log.info("下探 place [CARTESIAN]")
             arm.move_to_pose(place, grasp_quat, cartesian=True)
-            gripper.open()  # place 松开，物体放下
-            time.sleep(1.0)
-            log.info("retreat 离开 place [CARTESIAN 退避]")
-            arm.move_to_pose(place_pre, grasp_quat, cartesian=True)
+            gripper.open()  # 松开
+            # 4) 笛卡尔退离
+            pos, _ = arm.get_tool0_pose()
+            log.info("退离 place [CARTESIAN]")
+            arm.move_to_pose([pos[0], pos[1], pos[2] + LIFT_Z], grasp_quat, cartesian=True)
             log.info("收尾: detach + disallow + 清理")
             arm.detach_object(OBJECT_NAME)
             arm.allow_collisions(OBJECT_NAME, False)
