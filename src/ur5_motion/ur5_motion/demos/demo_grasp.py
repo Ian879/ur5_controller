@@ -53,6 +53,8 @@ OBJECT_SIZE = [0.065, 0.065, 0.115]   # cola 罐包围盒 x,y,z（米）；0.064
 LOOK_XY = [0.30, 0.0]
 LOOK_TOOL0_Z = 0.25
 LOOK_SAM_DWELL = 3.0   # 到位后等 SAM 出一帧新 mask（1Hz，等 3s 拿到 look-pose mask）
+# look pose 用关节目标（用户实测位姿 [0,-50,36,-107,-90,0]°，避开 OMPL 选扭曲笛卡尔解）
+LOOK_JOINTS = [0.0, -0.8727, 0.6283, -1.3963, -1.5708, 0.0]  # deg: [0,-50,36,-80,-90,0]
 # ── pose source：gt = 桥 USD 静态 / fp = FoundationPose 动态感知 ──
 POSE_SOURCE = os.environ.get("POSE_SOURCE", "gt")  # 环境变量切换：POSE_SOURCE=fp ros2 run ...
 GRASP_FRAME = "fp_object" if POSE_SOURCE == "fp" else "grasp_target"
@@ -166,15 +168,15 @@ def main():
             用桌面工作空间范围做合理性框（不依赖相机位置——斜视时相机≠物体正上方）。"""
             if pos is None:
                 return False
-            return (0.25 < pos[0] < 0.65 and   # 桌面 x 范围（不是 0=base 原点）
-                    abs(pos[1]) < 0.25 and      # 桌面 y 范围
-                    -0.58 < pos[2] < -0.15)     # 桌面高度（base z ~-0.4）
+            return (0.25 < pos[0] < 0.95 and   # 桌面 x 范围（可乐可能挪到远处）
+                    abs(pos[1]) < 0.40 and      # 桌面 y 范围
+                    -0.62 < pos[2] < -0.15)     # 桌面高度（base z ~-0.4）
 
         obj_pos = obj_quat = None
         if POSE_SOURCE == "fp":
             # 0. 移到观测位（眼在手，HOME 相机朝侧方看不到物体）
-            log.info(f"移到观测位 tool0={LOOK_XY}+z{LOOK_TOOL0_Z}（相机俯视物体）")
-            arm.move_to_pose([LOOK_XY[0], LOOK_XY[1], LOOK_TOOL0_Z], LOOK_QUAT)
+            log.info(f"移到观测位 LOOK_JOINTS（关节目标，确定性到达）")
+            arm.move_to_joint(LOOK_JOINTS)
             log.info(f"   到位，等 {LOOK_SAM_DWELL}s 让 mask 出 look-pose ...")
             time.sleep(LOOK_SAM_DWELL)
             fp_cli = arm.node.create_client(Trigger, "/foundationpose/track")
@@ -225,7 +227,8 @@ def main():
         planner = GraspPlanner(log=log)
         if not planner.wait_ready():
             return
-        cand = planner.plan(obj_pos, OBJECT_SIZE, shape=GRASP_SHAPE)
+        cands_ranked = planner.plan_ranked(obj_pos, OBJECT_SIZE, shape=GRASP_SHAPE)
+        cand = cands_ranked[0]
 
         def _poses_for(obj_pos_):
             """物体位姿 + 当前候选 reach/quat → (tool0_grasp, tool0_pre)。可对再观测的新位姿重算。"""
@@ -250,8 +253,23 @@ def main():
             arm.add_box(OBJECT_NAME, position=obj_pos, size=OBJECT_SIZE, quat_xyzw=obj_quat)
             arm.allow_collisions(OBJECT_NAME, True)  # 侧抓：pre-grasp 紧贴盒侧，先 allow 才规划得过去
             time.sleep(1.0)
-            log.info(f"pre-grasp -> {[round(v,3) for v in pre]}")
-            arm.move_to_pose(pre, grasp_quat)
+            # ── pre-grasp：候选重试。IK 可达 ≠ OMPL 规划得过去（99999 goal-sampling），
+            #    失败就换 plan_ranked 的下一个候选（换方位/倾角常能解开）。──
+            reached_pre = False
+            for gi, gc in enumerate(cands_ranked):
+                cand = gc                      # _poses_for 闭包引用 cand，重绑即生效
+                grasp_quat = cand.quat
+                grasp, pre = _poses_for(obj_pos)
+                log.info(f"pre-grasp [{gi + 1}/{len(cands_ranked)}] {gc.label} "
+                         f"-> {[round(v, 3) for v in pre]}")
+                try:
+                    arm.move_to_pose(pre, grasp_quat)
+                    reached_pre = True
+                    break
+                except Exception as ge:  # noqa: BLE001
+                    log.warn(f"  {gc.label} pre-grasp 失败（{ge}），换下一候选 ...")
+            if not reached_pre:
+                raise RuntimeError(f"全部 {len(cands_ranked)} 个候选的 pre-grasp 均失败")
             # ── 再观测（Eye-in-Hand 闭环）：pre-grasp 处近距离再跑一次 FP，修正最终抓取位 ──
             if POSE_SOURCE == "fp":
                 log.info("pre-grasp 到位，重新触发 FP 修正最终抓取位 ...")
@@ -277,11 +295,15 @@ def main():
                 return
             log.info("attach + 闭合夹爪（MoveIt 规划层 attach；真夹爪物理夹持）")
             arm.attach_object(OBJECT_NAME, link_name="gripper_tip_tcp", touch_links=TOUCH_LINKS)
+            # attached 可乐 ↔ 桌子 放行：allow_collisions(可乐) 只放可乐↔机器人 link，
+            # 可乐↔桌子仍判碰撞 → 带物体的 OMPL 搬运路径被 -2 invalid states 拒。
+            arm.allow_collisions_pair(OBJECT_NAME, "table", True)
             gripper.close()  # 真夹爪物理夹持：手指合拢夹瓶侧（碰阻力→超时正常，move 返回 False 不抛）
             time.sleep(2.0)  # 等 close 物理收敛（接触/摩擦稳定）再 retreat，避 retreat 跟踪失败(-4)
             # ── decomposed place：短段拆开，OMPL 只管自由空间搬运 ──
             LIFT_Z = 0.20          # 抬离桌面高度
-            TRANSPORT_Z = 0.30     # 安全搬运高度（base 系 z）
+            TRANSPORT_Z = 0.45     # 安全搬运高度（带 attached 物体的 transit 路径要离桌面足够远，
+                                    # 0.30 实测 OMPL 判 -2 invalid states；0.45 留余量）
             # 1) 沿接近轴退 + 上抬（笛卡尔，带物体）
             pos, _q = arm.get_tool0_pose()
             a = cand.reach

@@ -31,6 +31,7 @@ setup(
             "world_sync = ur5_motion.world_sync_node:main",
             "isaac_gripper_action = ur5_motion.isaac_gripper_action:main",
             "sam_segmentation = ur5_motion.sam_segmentation:main",
+            "grasp_plan = ur5_motion.grasp_planner:main",
         ],
     },
 )

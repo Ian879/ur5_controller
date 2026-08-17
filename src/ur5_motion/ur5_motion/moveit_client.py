@@ -253,6 +253,54 @@ class UR5MoveIt:
             helper.destroy_node()
             exe.shutdown()
 
+    def allow_collisions_pair(self, name_a: str, name_b: str, allow: bool,
+                              timeout: float = 8.0) -> bool:
+        """只放行 name_a ↔ name_b 这一对（不动整行）。供「attached 物体 ↔ 桌子」——
+        allow_collisions(name) 只放行 name↔机器人 link，name↔世界物体（table 等）仍判
+        碰撞，带物体搬运的 OMPL 路径会被 -2 invalid states 拒掉。"""
+        import threading
+        import time as _time
+
+        from moveit_msgs.msg import AllowedCollisionEntry
+        from moveit_msgs.srv import ApplyPlanningScene, GetPlanningScene
+        from rclpy.executors import SingleThreadedExecutor
+
+        helper = rclpy.create_node("ur5_acm_pair_helper")
+        exe = SingleThreadedExecutor()
+        exe.add_node(helper)
+        threading.Thread(target=exe.spin, daemon=True).start()
+        try:
+            get_srv = helper.create_client(GetPlanningScene, "get_planning_scene")
+            app_srv = helper.create_client(ApplyPlanningScene, "apply_planning_scene")
+            if not get_srv.wait_for_service(timeout_sec=3.0) or \
+               not app_srv.wait_for_service(timeout_sec=3.0):
+                self._log.warn(f"allow_collisions_pair({name_a},{name_b}): service 未就绪")
+                return False
+            get_fut = get_srv.call_async(GetPlanningScene.Request())
+            if not self._poll_future(get_fut, timeout, "get_planning_scene(pair)"):
+                return False
+            scene = get_fut.result().scene
+            acm = scene.allowed_collision_matrix
+            for n in (name_a, name_b):          # 缺的 entry 补齐（默认全 False）
+                if n not in acm.entry_names:
+                    acm.entry_names.append(n)
+                    for ev in acm.entry_values:
+                        ev.enabled.append(False)
+                    acm.entry_values.append(
+                        AllowedCollisionEntry(enabled=[False] * len(acm.entry_names)))
+            ia, ib = acm.entry_names.index(name_a), acm.entry_names.index(name_b)
+            acm.entry_values[ia].enabled[ib] = allow
+            acm.entry_values[ib].enabled[ia] = allow
+            app_fut = app_srv.call_async(ApplyPlanningScene.Request(scene=scene))
+            if not self._poll_future(app_fut, timeout, "apply_planning_scene(pair)"):
+                return False
+            self._log.info(f"ACM pair 设好: {name_a}↔{name_b} allow={allow}")
+            return True
+        finally:
+            exe.remove_node(helper)
+            helper.destroy_node()
+            exe.shutdown()
+
     def _poll_future(self, fut, timeout: float, label: str) -> bool:
         """轮询 rclpy future 到 done 或超时（主线程 sleep，不占 executor）。供 allow_collisions 的
         call_async service 调用用——避免 pymoveit2 同步 .call() 的无限 event.wait()。"""
@@ -324,19 +372,38 @@ class UR5MoveIt:
         return [name_to_pos.get(n, 0.0) for n in JOINT_NAMES]
 
     def get_tool0_pose(self):
-        """读当前 tool0 在 base_link 的 (pos, quat_xyzw)。供 decomposed place 的相对移动用。"""
+        """读当前 tool0 在 base_link 的 (pos, quat_xyzw)。供 decomposed place 的相对移动用。
+
+        ⚠️ 必须用【独立 node + 独立 executor】：arm.node 的 listener 实测收不到 /tf
+        （MultiThreadedExecutor 被 pymoveit2 回调占住，TF 消息派发不到——demo_grasp 顶部
+        注释同一个坑）。这里照 demo 的 tf_node 模式：临时节点+SingleThreadedExecutor
+        后台线程，查完拆掉。"""
+        import threading
         import time as _time
+
         import tf2_ros
+        from rclpy.executors import SingleThreadedExecutor
+
+        tmp_node = rclpy.create_node("ur5_tool0_tf_helper")
         buf = tf2_ros.Buffer()
-        tf2_ros.TransformListener(buf, self.node)
-        for _ in range(50):
-            try:
-                t = buf.lookup_transform("base_link", "tool0", rclpy.time.Time())
-                tr = t.transform.translation; ro = t.transform.rotation
-                return [tr.x, tr.y, tr.z], [ro.x, ro.y, ro.z, ro.w]
-            except tf2_ros.TransformException:
-                _time.sleep(0.02)
-        raise RuntimeError("tool0 TF 查不到（base_link→tool0 1s 内无数据）")
+        tf2_ros.TransformListener(buf, tmp_node)
+        exe = SingleThreadedExecutor()
+        exe.add_node(tmp_node)
+        th = threading.Thread(target=exe.spin, daemon=True)
+        th.start()
+        try:
+            for _ in range(250):  # 5s
+                try:
+                    t = buf.lookup_transform("base_link", "tool0", rclpy.time.Time())
+                    tr = t.transform.translation; ro = t.transform.rotation
+                    return [tr.x, tr.y, tr.z], [ro.x, ro.y, ro.z, ro.w]
+                except tf2_ros.TransformException:
+                    _time.sleep(0.02)
+            raise RuntimeError("tool0 TF 查不到（base_link→tool0 5s 内无数据）")
+        finally:
+            exe.remove_node(tmp_node)
+            tmp_node.destroy_node()
+            exe.shutdown()
 
     # ── 生命周期 ──────────────────────────────────────────────────────
     def shutdown(self) -> None:

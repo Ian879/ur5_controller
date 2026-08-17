@@ -250,6 +250,42 @@ class GraspPlanner:
         )
         return best
 
+    def plan_ranked(
+        self,
+        obj_pos: Sequence[float],
+        obj_size: Sequence[float],
+        shape: str = "cylinder",
+        verbose: bool = True,
+        max_n: int = 5,
+    ) -> List[GraspCandidate]:
+        """同 plan()，但返回 cost 升序前 max_n 个可行候选。
+
+        为什么需要：IK 可达 ≠ OMPL 规划得过去（goal-sampling 可能失败 99999）——
+        demo 对 pre-grasp 失败的候选自动换下一个重试，直到有一个规划/执行成功。"""
+        seed_joints = self._current_arm_joints()
+        cands = generate_candidates(obj_pos, obj_size, shape)
+        self._log.info(f"grasp plan: {len(cands)} 候选 (shape={shape})，逐个查 IK ...")
+        scored = []
+        for c in cands:
+            joints, ok = self._query_ik(c.tool0_grasp, c.quat)
+            if ok:
+                cost = grasp_cost(joints, seed_joints, c.tilt) + c.prior
+                c.ik_joints = joints
+                scored.append((cost, c))
+            elif verbose:
+                self._log.info(f"  ✗ {c.label}: IK 不可达")
+        if not scored:
+            raise RuntimeError(
+                f"所有 {len(cands)} 个抓取候选均 IK 不可达——检查物体位姿/关节限位/"
+                "shoulder_lift 范围。可能物体太远或太低。"
+            )
+        scored.sort(key=lambda r: r[0])
+        ranked = [c for _, c in scored[:max_n]]
+        if verbose:
+            self._log.info("  → 排序候选（cost 升序）: " +
+                           ", ".join(f"{c.label}({cost:.2f})" for cost, c in scored[:max_n]))
+        return ranked
+
     def _current_arm_joints(self) -> List[float]:
         """读当前 6 臂关节（/joint_states 缓存）。"""
         if self._js is None:
