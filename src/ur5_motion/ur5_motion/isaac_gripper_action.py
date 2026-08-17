@@ -46,6 +46,12 @@ ACTION_NAME = "lebai_gripper_controller/gripper_cmd"
 CMD_REPUBLISH_PERIOD = 0.1  # s
 # 到位前的最长等待（避免桥不发状态时永久挂起）。
 MAX_WAIT_SEC = 10.0
+# Stall（碰到物体）检测：相邻周期位移 < STALL_EPS 视为没动；连续 STALL_CYCLES 个周期没动
+# 且还没到 target → 判 stalled（夹住物体了）→ 停止重发 position，解除持续过约束。
+# 根因修复：原逻辑硬砸 position=target 直到超时，夹到物体后 mimic 约束持续受大反力 →
+# link1/finger 分离崩断。stall 即停 → mimic 不再过载。
+STALL_EPS = 0.005  # rad（每周期位移阈值；太严手指在驱动力下微动判不出 stall）
+STALL_CYCLES = 3    # 连续几个周期没动才算 stall
 
 
 def main():
@@ -121,6 +127,9 @@ def main():
         # 周期重发命令 + 轮询当前位姿。executor 在另一线程上 dispatch on_state 更新 state。
         deadline = node.get_clock().now().nanoseconds + int(MAX_WAIT_SEC * 1e9)
         reached = False
+        stalled = False
+        prev_pos = None
+        stall_count = 0
         while rclpy.ok():
             # 抢占/取消处理。
             if goal_handle.is_cancel_requested:
@@ -131,27 +140,38 @@ def main():
             js.header.stamp = node.get_clock().now().to_msg()
             pub.publish(js)
 
-            feedback.position = state["pos"]
+            cur = state["pos"]
+            feedback.position = cur
             goal_handle.publish_feedback(feedback)
 
-            if abs(state["pos"] - target) < TOL:
+            if abs(cur - target) < TOL:
                 reached = True
                 break
+            # stall 检测：手指没动（碰物体了）→ 别再硬砸 position，解除持续过约束。
+            if prev_pos is not None and abs(cur - prev_pos) < STALL_EPS:
+                stall_count += 1
+                if stall_count >= STALL_CYCLES:
+                    stalled = True
+                    node.get_logger().info(
+                        f"stall detected（夹住物体）: cur={cur:.4f} target={target:.4f} "
+                        f"— 停驱动，避过约束崩夹爪"
+                    )
+                    break
+            else:
+                stall_count = 0
+            prev_pos = cur
             if node.get_clock().now().nanoseconds > deadline:
                 node.get_logger().warn(
                     f"timeout waiting for gripper to reach target "
-                    f"(current={state['pos']:.4f} target={target:.4f})"
+                    f"(current={cur:.4f} target={target:.4f})"
                 )
                 break
             # 让出 CPU；MultiThreadedExecutor 在另一线程上 dispatch on_state。
-            # NOTE: 此重发节拍用 wall-clock time.sleep，而上面的 deadline / stamp 用
-            # node.get_clock().now()（use_sim_time:=true 下随仿真时钟）——两者口径不同，
-            # 但 0.1s 节拍下无实质影响，勿误以为两者都是仿真时间。
             time.sleep(CMD_REPUBLISH_PERIOD)
 
         result.position = state["pos"]
         result.reached_goal = reached
-        result.stalled = False
+        result.stalled = stalled
         result.effort = 0.0
         if not goal_handle.is_cancel_requested:
             goal_handle.succeed()

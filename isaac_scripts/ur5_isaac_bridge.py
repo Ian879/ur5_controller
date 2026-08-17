@@ -587,6 +587,25 @@ if _camera_ok:
 SimulationManager.setup_simulation(dt=1.0 / 60.0, device="cpu")
 
 app_utils.play()
+
+# 设初始关节位置（home）—— 必须在第一次 simulation_app.update()（第一次 graph tick +
+# 第一次 /isaac_joint_states 发布）之前执行，否则控制器读到 0 并 hold 住。
+# Isaac 6.0 用 isaacsim.core.prims.SingleArticulation（旧 omni.isaac.core 已废）。
+try:
+    from isaacsim.core.prims import SingleArticulation
+    art = SingleArticulation(args.articulation_prim, name="ur5")
+    art.initialize()
+    cur = art.get_joint_positions()  # 全部关节（arm + gripper），17 个
+    ARM_HOME = [0.0, -0.7854, 0.0, 0.0, 0.0, 0.0]  # 只改前 6 个 arm
+    target = list(cur)
+    target[:6] = ARM_HOME
+    art.set_joint_positions(target)
+    art.set_joints_default_state(positions=target, velocities=[0.0] * len(target))
+    carb.log_warn(f"[init-pose] shoulder_lift={target[1]:.4f} ({len(target)} joints)")
+except Exception as _e:
+    import traceback
+    carb.log_warn(f"[init-pose] 失败: {_e}\n{traceback.format_exc()}")
+
 simulation_app.update()
 
 # 物理抓取：真夹爪靠手指对夹 + 摩擦力（close 驱动 gripper_r_joint1 → 手指合拢夹瓶侧），不用
