@@ -25,8 +25,7 @@ ATTACH="${ATTACH:-1}"
 # RMW：cyclonedds（fastdds 的 action goal 投递间歇性超时——service 正常但 /move_action
 # goal response 发不回，16MB UDP 缓冲只缓解未根治；cyclone 单机可靠）。所有窗口+健康检查
 # 必须同一 RMW。source_env.sh / setup_ros_env.sh 都尊重此预设值。
-export RMW_IMPLEMENTATION="${RMW_IMPLEMENTATION:-rmw_cyclonedds_cpp}"
-RMW_CYC="rmw_cyclonedds_cpp"
+export RMW_IMPLEMENTATION="${RMW_IMPLEMENTATION:-rmw_fastrtps_cpp}"
 
 # 颜色
 C_CYAN=$'\033[36m'; C_YEL=$'\033[33m'; C_GRN=$'\033[32m'; C_RED=$'\033[31m'; C_OFF=$'\033[0m'
@@ -78,7 +77,7 @@ tmux kill-session -t "$SESSION" 2>/dev/null && log "杀掉旧 session $SESSION" 
 log "起 isaac 桥（窗 isaac）..."
 tmux new-session -d -s "$SESSION" -n isaac
 tmux send-keys -t "$SESSION:isaac" \
-  "export RMW_IMPLEMENTATION=$RMW_CYC; cd $ISAAC && conda deactivate 2>/dev/null; source setup_ros_env.sh && ./python.sh $REPO/isaac_scripts/ur5_isaac_bridge.py --stream --robot_prim /World/ur5 --object_prim /World/cola" C-m
+  "export RMW_IMPLEMENTATION=$RMW_IMPLEMENTATION; cd $ISAAC && conda deactivate 2>/dev/null; source setup_ros_env.sh && ./python.sh $REPO/isaac_scripts/ur5_isaac_bridge.py --stream --robot_prim /World/ur5 --object_prim /World/cola" C-m
 _wait_for "isaac /clock" "timeout 3 ros2 topic echo --once /clock 2>/dev/null | grep -q sec" 90
 
 # ── 窗 2: full_stack（py3.10） ────────────────────────────
@@ -86,7 +85,7 @@ log "起 full_stack backend:=isaac（窗 ros）..."
 tmux new-window -t "$SESSION" -n ros
 RVIZ_ARG="launch_rviz:=$([ "$RVIZ" = "1" ] && echo true || echo false)"
 tmux send-keys -t "$SESSION:ros" \
-  "export RMW_IMPLEMENTATION=$RMW_CYC; cd $REPO && source tools/source_env.sh && ros2 launch ur5_bringup full_stack.launch.py backend:=isaac $RVIZ_ARG" C-m
+  "export RMW_IMPLEMENTATION=$RMW_IMPLEMENTATION; cd $REPO && source tools/source_env.sh && ros2 launch ur5_bringup full_stack.launch.py backend:=isaac $RVIZ_ARG" C-m
 _wait_for "move_group" "timeout 4 ros2 node list 2>/dev/null | grep -q '^/move_group$'" 60
 
 # ── 窗 3: fp_server（py3.11） ─────────────────────────────
@@ -100,7 +99,7 @@ _wait_for "fp_server /health" "curl -sf localhost:8765/health" 40
 log "起 mask=$MASK（窗 mask）..."
 tmux new-window -t "$SESSION" -n mask
 tmux send-keys -t "$SESSION:mask" \
-  "export RMW_IMPLEMENTATION=$RMW_CYC; cd $REPO && source tools/source_env.sh && $ROBOT_PY src/ur5_motion/ur5_motion/$MASK_FILE" C-m
+  "export RMW_IMPLEMENTATION=$RMW_IMPLEMENTATION; cd $REPO && source tools/source_env.sh && $ROBOT_PY src/ur5_motion/ur5_motion/$MASK_FILE" C-m
 _wait_for "/segmentation publisher" "timeout 3 ros2 topic info /segmentation 2>/dev/null | grep -qE 'Publisher count: [1-9]'" 15
 
 # ── 窗 5: fp_node（py3.10 robot） ─────────────────────────
@@ -110,12 +109,12 @@ tmux new-window -t "$SESSION" -n fp_node
 # ⚠️ 必须 use_sim_time:=true：isaac 后端 base_link 链是 sim 时戳，fp_object 也要 sim 时戳
 #    才能链上（否则 "extrapolation into the past"：fp_object wall vs base_link sim）。
 tmux send-keys -t "$SESSION:fp_node" \
-  "source /opt/ros/humble/setup.bash; export ROS_DOMAIN_ID=0 RMW_IMPLEMENTATION=$RMW_CYC; export PYTHONPATH=$JIAYIN:\$PYTHONPATH; $ROBOT_PY -u $JIAYIN/ros2_nodes/fp_node.py --ros-args -p use_sim_time:=true" C-m
+  "source /opt/ros/humble/setup.bash; export ROS_DOMAIN_ID=0 RMW_IMPLEMENTATION=$RMW_IMPLEMENTATION; export PYTHONPATH=$JIAYIN:\$PYTHONPATH; $ROBOT_PY -u $JIAYIN/ros2_nodes/fp_node.py --ros-args -p use_sim_time:=true" C-m
 _wait_for "/foundationpose/track" "timeout 3 ros2 service list 2>/dev/null | grep -q '/foundationpose/track'" 15
 
 # ── 窗 6: client（空 shell 备好环境） ─────────────────────
 tmux new-window -t "$SESSION" -n client
-tmux send-keys -t "$SESSION:client" "export RMW_IMPLEMENTATION=$RMW_CYC; cd $REPO && source tools/source_env.sh" C-m
+tmux send-keys -t "$SESSION:client" "export RMW_IMPLEMENTATION=$RMW_IMPLEMENTATION; cd $REPO && source tools/source_env.sh" C-m
 
 # 选到 client 窗
 tmux select-window -t "$SESSION:client"
