@@ -1,5 +1,5 @@
 <?xml version="1.0"?>
-<robot xmlns:xacro="http://ros.org/wiki/xacro" name="ur5">
+<robot xmlns:xacro="http://ros.org/wiki/xacro" name="ur5_with_gripper">
   <!--
     SRDF for ur5 + Lebai gripper.
     ur_manipulator group 是本地 fork（内联系统 ur_macro.srdf.xacro 的 group/states/arm
@@ -19,7 +19,7 @@
   </group>
   <group_state name="home" group="ur_manipulator">
     <joint name="elbow_joint" value="0" />
-    <joint name="shoulder_lift_joint" value="-1.5707" />
+    <joint name="shoulder_lift_joint" value="-0.7854" />
     <joint name="shoulder_pan_joint" value="0" />
     <joint name="wrist_1_joint" value="0" />
     <joint name="wrist_2_joint" value="0" />
@@ -27,7 +27,7 @@
   </group_state>
   <group_state name="up" group="ur_manipulator">
     <joint name="elbow_joint" value="0" />
-    <joint name="shoulder_lift_joint" value="-1.5707" />
+    <joint name="shoulder_lift_joint" value="-0.7854" />
     <joint name="shoulder_pan_joint" value="0" />
     <joint name="wrist_1_joint" value="-1.5707" />
     <joint name="wrist_2_joint" value="0" />
@@ -172,4 +172,175 @@
   <disable_collisions link1="camera_left_ir_optical_frame" link2="camera_botter_screw_frame" reason="Never"/>
   <disable_collisions link1="camera_color_optical_frame" link2="camera_botter_screw_frame" reason="Never"/>
 
+  <!-- ===== 相机 8 个子帧(color/depth/ir + 各自 optical) vs 全部手臂/夹爪 link：
+       刚性挂载在 flange，整组不做自碰撞。之前漏配 → forearm vs camera_left_ir_optical_frame
+       等假自碰撞，让 OMPL 判路径 invalid(-2)，运动时灵时不灵。补全。===== -->
+  <disable_collisions link1="camera_color_frame" link2="base_link" reason="Never"/>
+  <disable_collisions link1="camera_color_frame" link2="base_link_inertia" reason="Never"/>
+  <disable_collisions link1="camera_color_frame" link2="shoulder_link" reason="Never"/>
+  <disable_collisions link1="camera_color_frame" link2="upper_arm_link" reason="Never"/>
+  <disable_collisions link1="camera_color_frame" link2="forearm_link" reason="Never"/>
+  <disable_collisions link1="camera_color_frame" link2="wrist_1_link" reason="Never"/>
+  <disable_collisions link1="camera_color_frame" link2="wrist_2_link" reason="Never"/>
+  <disable_collisions link1="camera_color_frame" link2="wrist_3_link" reason="Never"/>
+  <disable_collisions link1="camera_color_frame" link2="flange" reason="Never"/>
+  <disable_collisions link1="camera_color_frame" link2="tool0" reason="Never"/>
+  <disable_collisions link1="camera_color_frame" link2="gripper_base_link" reason="Never"/>
+  <disable_collisions link1="camera_color_frame" link2="gripper_r_link1" reason="Never"/>
+  <disable_collisions link1="camera_color_frame" link2="gripper_r_link2" reason="Never"/>
+  <disable_collisions link1="camera_color_frame" link2="gripper_r_link_finger" reason="Never"/>
+  <disable_collisions link1="camera_color_frame" link2="gripper_l_link1" reason="Never"/>
+  <disable_collisions link1="camera_color_frame" link2="gripper_l_link2" reason="Never"/>
+  <disable_collisions link1="camera_color_frame" link2="gripper_l_link_finger" reason="Never"/>
+  <disable_collisions link1="camera_color_frame" link2="gripper_tip_midpoint_arm" reason="Never"/>
+  <disable_collisions link1="camera_color_frame" link2="gripper_tip_midpoint_counterarm" reason="Never"/>
+  <disable_collisions link1="camera_color_frame" link2="gripper_tip" reason="Never"/>
+  <disable_collisions link1="camera_color_frame" link2="camera_flange_support" reason="Never"/>
+  <disable_collisions link1="camera_color_optical_frame" link2="base_link" reason="Never"/>
+  <disable_collisions link1="camera_color_optical_frame" link2="base_link_inertia" reason="Never"/>
+  <disable_collisions link1="camera_color_optical_frame" link2="shoulder_link" reason="Never"/>
+  <disable_collisions link1="camera_color_optical_frame" link2="upper_arm_link" reason="Never"/>
+  <disable_collisions link1="camera_color_optical_frame" link2="forearm_link" reason="Never"/>
+  <disable_collisions link1="camera_color_optical_frame" link2="wrist_1_link" reason="Never"/>
+  <disable_collisions link1="camera_color_optical_frame" link2="wrist_2_link" reason="Never"/>
+  <disable_collisions link1="camera_color_optical_frame" link2="wrist_3_link" reason="Never"/>
+  <disable_collisions link1="camera_color_optical_frame" link2="flange" reason="Never"/>
+  <disable_collisions link1="camera_color_optical_frame" link2="tool0" reason="Never"/>
+  <disable_collisions link1="camera_color_optical_frame" link2="gripper_base_link" reason="Never"/>
+  <disable_collisions link1="camera_color_optical_frame" link2="gripper_r_link1" reason="Never"/>
+  <disable_collisions link1="camera_color_optical_frame" link2="gripper_r_link2" reason="Never"/>
+  <disable_collisions link1="camera_color_optical_frame" link2="gripper_r_link_finger" reason="Never"/>
+  <disable_collisions link1="camera_color_optical_frame" link2="gripper_l_link1" reason="Never"/>
+  <disable_collisions link1="camera_color_optical_frame" link2="gripper_l_link2" reason="Never"/>
+  <disable_collisions link1="camera_color_optical_frame" link2="gripper_l_link_finger" reason="Never"/>
+  <disable_collisions link1="camera_color_optical_frame" link2="gripper_tip_midpoint_arm" reason="Never"/>
+  <disable_collisions link1="camera_color_optical_frame" link2="gripper_tip_midpoint_counterarm" reason="Never"/>
+  <disable_collisions link1="camera_color_optical_frame" link2="gripper_tip" reason="Never"/>
+  <disable_collisions link1="camera_color_optical_frame" link2="camera_flange_support" reason="Never"/>
+  <disable_collisions link1="camera_depth_frame" link2="base_link" reason="Never"/>
+  <disable_collisions link1="camera_depth_frame" link2="base_link_inertia" reason="Never"/>
+  <disable_collisions link1="camera_depth_frame" link2="shoulder_link" reason="Never"/>
+  <disable_collisions link1="camera_depth_frame" link2="upper_arm_link" reason="Never"/>
+  <disable_collisions link1="camera_depth_frame" link2="forearm_link" reason="Never"/>
+  <disable_collisions link1="camera_depth_frame" link2="wrist_1_link" reason="Never"/>
+  <disable_collisions link1="camera_depth_frame" link2="wrist_2_link" reason="Never"/>
+  <disable_collisions link1="camera_depth_frame" link2="wrist_3_link" reason="Never"/>
+  <disable_collisions link1="camera_depth_frame" link2="flange" reason="Never"/>
+  <disable_collisions link1="camera_depth_frame" link2="tool0" reason="Never"/>
+  <disable_collisions link1="camera_depth_frame" link2="gripper_base_link" reason="Never"/>
+  <disable_collisions link1="camera_depth_frame" link2="gripper_r_link1" reason="Never"/>
+  <disable_collisions link1="camera_depth_frame" link2="gripper_r_link2" reason="Never"/>
+  <disable_collisions link1="camera_depth_frame" link2="gripper_r_link_finger" reason="Never"/>
+  <disable_collisions link1="camera_depth_frame" link2="gripper_l_link1" reason="Never"/>
+  <disable_collisions link1="camera_depth_frame" link2="gripper_l_link2" reason="Never"/>
+  <disable_collisions link1="camera_depth_frame" link2="gripper_l_link_finger" reason="Never"/>
+  <disable_collisions link1="camera_depth_frame" link2="gripper_tip_midpoint_arm" reason="Never"/>
+  <disable_collisions link1="camera_depth_frame" link2="gripper_tip_midpoint_counterarm" reason="Never"/>
+  <disable_collisions link1="camera_depth_frame" link2="gripper_tip" reason="Never"/>
+  <disable_collisions link1="camera_depth_frame" link2="camera_flange_support" reason="Never"/>
+  <disable_collisions link1="camera_depth_optical_frame" link2="base_link" reason="Never"/>
+  <disable_collisions link1="camera_depth_optical_frame" link2="base_link_inertia" reason="Never"/>
+  <disable_collisions link1="camera_depth_optical_frame" link2="shoulder_link" reason="Never"/>
+  <disable_collisions link1="camera_depth_optical_frame" link2="upper_arm_link" reason="Never"/>
+  <disable_collisions link1="camera_depth_optical_frame" link2="forearm_link" reason="Never"/>
+  <disable_collisions link1="camera_depth_optical_frame" link2="wrist_1_link" reason="Never"/>
+  <disable_collisions link1="camera_depth_optical_frame" link2="wrist_2_link" reason="Never"/>
+  <disable_collisions link1="camera_depth_optical_frame" link2="wrist_3_link" reason="Never"/>
+  <disable_collisions link1="camera_depth_optical_frame" link2="flange" reason="Never"/>
+  <disable_collisions link1="camera_depth_optical_frame" link2="tool0" reason="Never"/>
+  <disable_collisions link1="camera_depth_optical_frame" link2="gripper_base_link" reason="Never"/>
+  <disable_collisions link1="camera_depth_optical_frame" link2="gripper_r_link1" reason="Never"/>
+  <disable_collisions link1="camera_depth_optical_frame" link2="gripper_r_link2" reason="Never"/>
+  <disable_collisions link1="camera_depth_optical_frame" link2="gripper_r_link_finger" reason="Never"/>
+  <disable_collisions link1="camera_depth_optical_frame" link2="gripper_l_link1" reason="Never"/>
+  <disable_collisions link1="camera_depth_optical_frame" link2="gripper_l_link2" reason="Never"/>
+  <disable_collisions link1="camera_depth_optical_frame" link2="gripper_l_link_finger" reason="Never"/>
+  <disable_collisions link1="camera_depth_optical_frame" link2="gripper_tip_midpoint_arm" reason="Never"/>
+  <disable_collisions link1="camera_depth_optical_frame" link2="gripper_tip_midpoint_counterarm" reason="Never"/>
+  <disable_collisions link1="camera_depth_optical_frame" link2="gripper_tip" reason="Never"/>
+  <disable_collisions link1="camera_depth_optical_frame" link2="camera_flange_support" reason="Never"/>
+  <disable_collisions link1="camera_left_ir_frame" link2="base_link" reason="Never"/>
+  <disable_collisions link1="camera_left_ir_frame" link2="base_link_inertia" reason="Never"/>
+  <disable_collisions link1="camera_left_ir_frame" link2="shoulder_link" reason="Never"/>
+  <disable_collisions link1="camera_left_ir_frame" link2="upper_arm_link" reason="Never"/>
+  <disable_collisions link1="camera_left_ir_frame" link2="forearm_link" reason="Never"/>
+  <disable_collisions link1="camera_left_ir_frame" link2="wrist_1_link" reason="Never"/>
+  <disable_collisions link1="camera_left_ir_frame" link2="wrist_2_link" reason="Never"/>
+  <disable_collisions link1="camera_left_ir_frame" link2="wrist_3_link" reason="Never"/>
+  <disable_collisions link1="camera_left_ir_frame" link2="flange" reason="Never"/>
+  <disable_collisions link1="camera_left_ir_frame" link2="tool0" reason="Never"/>
+  <disable_collisions link1="camera_left_ir_frame" link2="gripper_base_link" reason="Never"/>
+  <disable_collisions link1="camera_left_ir_frame" link2="gripper_r_link1" reason="Never"/>
+  <disable_collisions link1="camera_left_ir_frame" link2="gripper_r_link2" reason="Never"/>
+  <disable_collisions link1="camera_left_ir_frame" link2="gripper_r_link_finger" reason="Never"/>
+  <disable_collisions link1="camera_left_ir_frame" link2="gripper_l_link1" reason="Never"/>
+  <disable_collisions link1="camera_left_ir_frame" link2="gripper_l_link2" reason="Never"/>
+  <disable_collisions link1="camera_left_ir_frame" link2="gripper_l_link_finger" reason="Never"/>
+  <disable_collisions link1="camera_left_ir_frame" link2="gripper_tip_midpoint_arm" reason="Never"/>
+  <disable_collisions link1="camera_left_ir_frame" link2="gripper_tip_midpoint_counterarm" reason="Never"/>
+  <disable_collisions link1="camera_left_ir_frame" link2="gripper_tip" reason="Never"/>
+  <disable_collisions link1="camera_left_ir_frame" link2="camera_flange_support" reason="Never"/>
+  <disable_collisions link1="camera_left_ir_optical_frame" link2="base_link" reason="Never"/>
+  <disable_collisions link1="camera_left_ir_optical_frame" link2="base_link_inertia" reason="Never"/>
+  <disable_collisions link1="camera_left_ir_optical_frame" link2="shoulder_link" reason="Never"/>
+  <disable_collisions link1="camera_left_ir_optical_frame" link2="upper_arm_link" reason="Never"/>
+  <disable_collisions link1="camera_left_ir_optical_frame" link2="forearm_link" reason="Never"/>
+  <disable_collisions link1="camera_left_ir_optical_frame" link2="wrist_1_link" reason="Never"/>
+  <disable_collisions link1="camera_left_ir_optical_frame" link2="wrist_2_link" reason="Never"/>
+  <disable_collisions link1="camera_left_ir_optical_frame" link2="wrist_3_link" reason="Never"/>
+  <disable_collisions link1="camera_left_ir_optical_frame" link2="flange" reason="Never"/>
+  <disable_collisions link1="camera_left_ir_optical_frame" link2="tool0" reason="Never"/>
+  <disable_collisions link1="camera_left_ir_optical_frame" link2="gripper_base_link" reason="Never"/>
+  <disable_collisions link1="camera_left_ir_optical_frame" link2="gripper_r_link1" reason="Never"/>
+  <disable_collisions link1="camera_left_ir_optical_frame" link2="gripper_r_link2" reason="Never"/>
+  <disable_collisions link1="camera_left_ir_optical_frame" link2="gripper_r_link_finger" reason="Never"/>
+  <disable_collisions link1="camera_left_ir_optical_frame" link2="gripper_l_link1" reason="Never"/>
+  <disable_collisions link1="camera_left_ir_optical_frame" link2="gripper_l_link2" reason="Never"/>
+  <disable_collisions link1="camera_left_ir_optical_frame" link2="gripper_l_link_finger" reason="Never"/>
+  <disable_collisions link1="camera_left_ir_optical_frame" link2="gripper_tip_midpoint_arm" reason="Never"/>
+  <disable_collisions link1="camera_left_ir_optical_frame" link2="gripper_tip_midpoint_counterarm" reason="Never"/>
+  <disable_collisions link1="camera_left_ir_optical_frame" link2="gripper_tip" reason="Never"/>
+  <disable_collisions link1="camera_left_ir_optical_frame" link2="camera_flange_support" reason="Never"/>
+  <disable_collisions link1="camera_right_ir_frame" link2="base_link" reason="Never"/>
+  <disable_collisions link1="camera_right_ir_frame" link2="base_link_inertia" reason="Never"/>
+  <disable_collisions link1="camera_right_ir_frame" link2="shoulder_link" reason="Never"/>
+  <disable_collisions link1="camera_right_ir_frame" link2="upper_arm_link" reason="Never"/>
+  <disable_collisions link1="camera_right_ir_frame" link2="forearm_link" reason="Never"/>
+  <disable_collisions link1="camera_right_ir_frame" link2="wrist_1_link" reason="Never"/>
+  <disable_collisions link1="camera_right_ir_frame" link2="wrist_2_link" reason="Never"/>
+  <disable_collisions link1="camera_right_ir_frame" link2="wrist_3_link" reason="Never"/>
+  <disable_collisions link1="camera_right_ir_frame" link2="flange" reason="Never"/>
+  <disable_collisions link1="camera_right_ir_frame" link2="tool0" reason="Never"/>
+  <disable_collisions link1="camera_right_ir_frame" link2="gripper_base_link" reason="Never"/>
+  <disable_collisions link1="camera_right_ir_frame" link2="gripper_r_link1" reason="Never"/>
+  <disable_collisions link1="camera_right_ir_frame" link2="gripper_r_link2" reason="Never"/>
+  <disable_collisions link1="camera_right_ir_frame" link2="gripper_r_link_finger" reason="Never"/>
+  <disable_collisions link1="camera_right_ir_frame" link2="gripper_l_link1" reason="Never"/>
+  <disable_collisions link1="camera_right_ir_frame" link2="gripper_l_link2" reason="Never"/>
+  <disable_collisions link1="camera_right_ir_frame" link2="gripper_l_link_finger" reason="Never"/>
+  <disable_collisions link1="camera_right_ir_frame" link2="gripper_tip_midpoint_arm" reason="Never"/>
+  <disable_collisions link1="camera_right_ir_frame" link2="gripper_tip_midpoint_counterarm" reason="Never"/>
+  <disable_collisions link1="camera_right_ir_frame" link2="gripper_tip" reason="Never"/>
+  <disable_collisions link1="camera_right_ir_frame" link2="camera_flange_support" reason="Never"/>
+  <disable_collisions link1="camera_right_ir_optical_frame" link2="base_link" reason="Never"/>
+  <disable_collisions link1="camera_right_ir_optical_frame" link2="base_link_inertia" reason="Never"/>
+  <disable_collisions link1="camera_right_ir_optical_frame" link2="shoulder_link" reason="Never"/>
+  <disable_collisions link1="camera_right_ir_optical_frame" link2="upper_arm_link" reason="Never"/>
+  <disable_collisions link1="camera_right_ir_optical_frame" link2="forearm_link" reason="Never"/>
+  <disable_collisions link1="camera_right_ir_optical_frame" link2="wrist_1_link" reason="Never"/>
+  <disable_collisions link1="camera_right_ir_optical_frame" link2="wrist_2_link" reason="Never"/>
+  <disable_collisions link1="camera_right_ir_optical_frame" link2="wrist_3_link" reason="Never"/>
+  <disable_collisions link1="camera_right_ir_optical_frame" link2="flange" reason="Never"/>
+  <disable_collisions link1="camera_right_ir_optical_frame" link2="tool0" reason="Never"/>
+  <disable_collisions link1="camera_right_ir_optical_frame" link2="gripper_base_link" reason="Never"/>
+  <disable_collisions link1="camera_right_ir_optical_frame" link2="gripper_r_link1" reason="Never"/>
+  <disable_collisions link1="camera_right_ir_optical_frame" link2="gripper_r_link2" reason="Never"/>
+  <disable_collisions link1="camera_right_ir_optical_frame" link2="gripper_r_link_finger" reason="Never"/>
+  <disable_collisions link1="camera_right_ir_optical_frame" link2="gripper_l_link1" reason="Never"/>
+  <disable_collisions link1="camera_right_ir_optical_frame" link2="gripper_l_link2" reason="Never"/>
+  <disable_collisions link1="camera_right_ir_optical_frame" link2="gripper_l_link_finger" reason="Never"/>
+  <disable_collisions link1="camera_right_ir_optical_frame" link2="gripper_tip_midpoint_arm" reason="Never"/>
+  <disable_collisions link1="camera_right_ir_optical_frame" link2="gripper_tip_midpoint_counterarm" reason="Never"/>
+  <disable_collisions link1="camera_right_ir_optical_frame" link2="gripper_tip" reason="Never"/>
+  <disable_collisions link1="camera_right_ir_optical_frame" link2="camera_flange_support" reason="Never"/>
 </robot>
