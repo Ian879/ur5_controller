@@ -43,6 +43,12 @@ from ur5_motion.grasp_planner import GraspPlanner
 GRASP_SHAPE = os.environ.get("GRASP_SHAPE", "cylinder")  # cylinder|box
 GRASP_PLAN_ONLY = os.environ.get("GRASP_PLAN_ONLY", "0") == "1"  # 只规划不执行（诊断）
 GRASP_INSPECT = os.environ.get("GRASP_INSPECT", "0") == "1"  # 到 grasp 位张开夹爪停住，看手指是否跨住物体
+# ── 侧抓下压偏置：FP z 常偏高 +5~10cm；tilt0° 水平接近时手指平面若顶到罐口 rim → 撞倒。
+#    瞄罐身下半（中心 -3cm）：FP z 偏高 +7cm 内手指仍在罐身上；低夹也更抗倒。罐半高 5.75cm。
+SIDE_Z_BIAS = float(os.environ.get("SIDE_Z_BIAS", "0.03"))
+# ── 抓取验证：close 后手指实际开口（gripper_r_joint1 rad）。全开 1.047↔span 11.5cm，
+#    空夹≈0，夹住 6.5cm 罐≈0.59。开口 < HOLD_MIN → 没夹住（撞倒/夹空）→ 不撤退就地清理。
+GRASP_HOLD_MIN = 0.25
 # 观测朝向：tool0 z 斜指下方 ~45°（绕 y 135°）→ 相机斜看桌面，FP 看到圆柱侧面（非对称）
 LOOK_QUAT = [0.0, 0.9239, 0.0, 0.3827]  # cos(67.5°), sin(67.5°)
 OBJECT_NAME = "target_object"
@@ -82,8 +88,16 @@ class GripperClient:
     CLOSE = 0.0          # 全合
 
     def __init__(self, node, log):
+        # ⚠️ 独立 node + 独立 executor（不复用 arm.node）——实测 arm.node（pymoveit2
+        #    Reentrant 组 + 后台 executor）上的 action goal 响应经常不派发（close 的
+        #    goal future 3s 超时 → None → 抓取验证拿不到结果）。同 tf_node/helper 模式。
         self.log = log
-        self.client = ActionClient(node, GripperCommand, self.ACTION)
+        import threading as _th
+        self._gnode = rclpy.create_node("demo_grasp_gripper")
+        self._gexec = rclpy.executors.SingleThreadedExecutor()
+        self._gexec.add_node(self._gnode)
+        _th.Thread(target=self._gexec.spin, daemon=True).start()
+        self.client = ActionClient(self._gnode, GripperCommand, self.ACTION)
         if not self.client.wait_for_server(timeout_sec=10.0):
             raise RuntimeError(
                 f"gripper action '{self.ACTION}' 不可用——"
@@ -91,21 +105,22 @@ class GripperClient:
             )
 
     def move(self, position, effort=50.0, timeout=3.0):
+        """发 GripperCommand，返回 result 对象（position=手指实际停住位置，供抓取验证）
+        或 None（goal/result 超时、被拒）。"""
         goal = GripperCommand.Goal()
         goal.command.position = position
         goal.command.max_effort = effort
         fut = self.client.send_goal_async(goal)
         if not self._await(fut, timeout, "gripper goal"):
-            return False
+            return None
         gh = fut.result()
         if gh is None or not gh.accepted:
             self.log.warn("gripper goal 被拒")
-            return False
+            return None
         res_fut = gh.get_result_async()
         if not self._await(res_fut, timeout, "gripper result"):
-            return False
-        res = res_fut.result().result
-        return res.reached_goal
+            return None
+        return res_fut.result().result
 
     def _await(self, fut, timeout, label):
         t0 = time.time()
@@ -121,8 +136,29 @@ class GripperClient:
         self.move(self.OPEN)
 
     def close(self):
+        """闭合并返回 result（.position=实际开口 rad；.stalled=是否碰物停住）。"""
         self.log.info("gripper CLOSE")
-        self.move(self.CLOSE)
+        return self.move(self.CLOSE)
+
+
+def _junwrap(goal, cur):
+    """把关节目标换算成离当前值最近的 2π 等价值（逐关节）。
+
+    isaac PhysX 关节值累加不回卷——几轮 demo 的 OMPL 长路径会把关节缠到 ±360° 限位附近
+    （实测一轮后 pan=309°、wrist_3=356°），下一轮 OMPL 判 start invalid(99999) 全挂。
+    发「最近等价值」：每轮从 home 邻域出发不越缠越远，也避免原地转一整圈的长路径。
+    ⚠️ 缠到 ~350°+ 时最近等价值会落在 ±360° 限位边上（OMPL 判越界 invalid）——
+    距限位 <3° 的换到另一侧等价值（一次性长路径，回到内部后不再发生）。
+    """
+    import math as _m
+    TWO_PI = 2.0 * _m.pi
+    out = []
+    for g, c in zip(goal, cur):
+        t = g + TWO_PI * round((c - g) / TWO_PI)
+        if abs(t) > TWO_PI - _m.radians(3.0):   # 落在 ±360° 限位边上 → 换另一侧等价值
+            t -= _m.copysign(TWO_PI, t)
+        out.append(t)
+    return out
 
 
 def main():
@@ -132,9 +168,10 @@ def main():
         gripper = GripperClient(arm.node, log)
 
         if RESET_HOME:
-            log.info("复位到 home")
+            log.info("复位到 home（关节目标取最近 2π 等价，解 PhysX 累加缠绕）")
             try:
-                arm.go_home()
+                from ur5_motion.moveit_client import HOME_JOINTS
+                arm.move_to_joint(_junwrap(HOME_JOINTS, arm.get_current_joints()))
             except Exception as e:  # noqa: BLE001
                 log.warn(f"go_home 失败（继续）: {e}")
 
@@ -176,7 +213,7 @@ def main():
         if POSE_SOURCE == "fp":
             # 0. 移到观测位（眼在手，HOME 相机朝侧方看不到物体）
             log.info(f"移到观测位 LOOK_JOINTS（关节目标，确定性到达）")
-            arm.move_to_joint(LOOK_JOINTS)
+            arm.move_to_joint(_junwrap(LOOK_JOINTS, arm.get_current_joints()))
             log.info(f"   到位，等 {LOOK_SAM_DWELL}s 让 mask 出 look-pose ...")
             time.sleep(LOOK_SAM_DWELL)
             fp_cli = arm.node.create_client(Trigger, "/foundationpose/track")
@@ -259,7 +296,8 @@ def main():
             for gi, gc in enumerate(cands_ranked):
                 cand = gc                      # _poses_for 闭包引用 cand，重绑即生效
                 grasp_quat = cand.quat
-                grasp, pre = _poses_for(obj_pos)
+                # SIDE_Z_BIAS 下压：瞄罐身下半，避 FP z 偏高时手指顶到罐口 rim 撞倒
+                grasp, pre = _poses_for([obj_pos[0], obj_pos[1], obj_pos[2] - SIDE_Z_BIAS])
                 log.info(f"pre-grasp [{gi + 1}/{len(cands_ranked)}] {gc.label} "
                          f"-> {[round(v, 3) for v in pre]}")
                 try:
@@ -279,7 +317,8 @@ def main():
                 if obj_pos2 is not None and _pose_sane(obj_pos2):
                     log.info(f"再观测修正：{[round(v,3) for v in obj_pos2]}"
                              f"（漂移 {[round(obj_pos2[i]-obj_pos[i],3) for i in range(3)]}）")
-                    grasp, pre = _poses_for(obj_pos2)          # 用新位姿重算 grasp/pre
+                    # 同样带 SIDE_Z_BIAS 下压（保持与 pre-grasp 一致的接触高度）
+                    grasp, pre = _poses_for([obj_pos2[0], obj_pos2[1], obj_pos2[2] - SIDE_Z_BIAS])
                 else:
                     log.warn("再观测未收敛，沿用首次位姿")
                     obj_pos2 = obj_pos                          # fallback：保证 obj_pos2 始终有定义
@@ -298,18 +337,37 @@ def main():
             # attached 可乐 ↔ 桌子 放行：allow_collisions(可乐) 只放可乐↔机器人 link，
             # 可乐↔桌子仍判碰撞 → 带物体的 OMPL 搬运路径被 -2 invalid states 拒。
             arm.allow_collisions_pair(OBJECT_NAME, "table", True)
-            gripper.close()  # 真夹爪物理夹持：手指合拢夹瓶侧（碰阻力→超时正常，move 返回 False 不抛）
+            gres = gripper.close()  # 真夹爪物理夹持：手指合拢夹瓶侧（碰阻力→stall 停住）；
+            #                        result.position = 手指实际停住的开口（stall 检测后即终态）
             time.sleep(2.0)  # 等 close 物理收敛（接触/摩擦稳定）再 retreat，避 retreat 跟踪失败(-4)
+            # ── 抓取验证（物理）：读第一次 close 的实际开口。空夹≈0 rad，夹住 6.5cm 罐≈0.59 rad。
+            #    开口过小 = 没夹住（撞倒/夹空）→ 不撤退（之前假 attach → 空手撤退的教训）。
+            #    ⚠️ 不能再发一次 close 读终态——第一个 action 还在时第二个 goal 会被拒（None）。──
+            opening = getattr(gres, "position", None) if gres is not None else None
+            if opening is None:
+                log.warn("抓取验证：close 无结果返回，抓取状态未知（继续，风险自负）")
+            elif opening < GRASP_HOLD_MIN:
+                log.error(f"没夹住！手指开口 {opening:.3f} rad < {GRASP_HOLD_MIN}"
+                          f"（空夹≈0，夹住罐≈0.59）→ 张开手指就地清理，不撤退")
+                gripper.open()
+                arm.detach_object(OBJECT_NAME)
+                arm.allow_collisions(OBJECT_NAME, False)
+                time.sleep(0.3)
+                arm.remove_collision(OBJECT_NAME)
+                raise RuntimeError(f"grasp verification 失败：开口 {opening:.3f} rad（没夹住）")
+            else:
+                log.info(f"抓取验证 ✓ 手指开口 {opening:.3f} rad（stalled="
+                         f"{getattr(gres, 'stalled', '?')}）→ 夹住了，撤退")
             # ── decomposed place：短段拆开，OMPL 只管自由空间搬运 ──
             LIFT_Z = 0.20          # 抬离桌面高度
             TRANSPORT_Z = 0.45     # 安全搬运高度（带 attached 物体的 transit 路径要离桌面足够远，
                                     # 0.30 实测 OMPL 判 -2 invalid states；0.45 留余量）
-            # 1) 沿接近轴退 + 上抬（笛卡尔，带物体）
-            pos, _q = arm.get_tool0_pose()
+            # 1) 沿接近轴退 + 上抬（笛卡尔，带物体）。解析算（刚走到的 grasp 位已知），
+            #    不读 TF——get_tool0_pose 实测出过鬼读数 [0.047,-0.087]（贴基座）。
             a = cand.reach
-            retreat = [pos[0] - APPROACH_MARGIN * a[0],
-                       pos[1] - APPROACH_MARGIN * a[1],
-                       pos[2] + LIFT_Z]
+            retreat = [grasp[0] - APPROACH_MARGIN * a[0],
+                       grasp[1] - APPROACH_MARGIN * a[1],
+                       grasp[2] + LIFT_Z]
             log.info("退避+抬离 [CARTESIAN]")
             arm.move_to_pose(retreat, grasp_quat, cartesian=True)
             # 2) 安全搬运到 place 上方（OMPL 关节空间，自由空间，带物体）
@@ -321,10 +379,9 @@ def main():
             log.info("下探 place [CARTESIAN]")
             arm.move_to_pose(place, grasp_quat, cartesian=True)
             gripper.open()  # 松开
-            # 4) 笛卡尔退离
-            pos, _ = arm.get_tool0_pose()
+            # 4) 笛卡尔退离（解析：place 位已知 + LIFT，不读 TF）
             log.info("退离 place [CARTESIAN]")
-            arm.move_to_pose([pos[0], pos[1], pos[2] + LIFT_Z], grasp_quat, cartesian=True)
+            arm.move_to_pose([place[0], place[1], place[2] + LIFT_Z], grasp_quat, cartesian=True)
             log.info("收尾: detach + disallow + 清理")
             arm.detach_object(OBJECT_NAME)
             arm.allow_collisions(OBJECT_NAME, False)

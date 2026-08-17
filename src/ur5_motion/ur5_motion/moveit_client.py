@@ -347,26 +347,42 @@ class UR5MoveIt:
 
     # ── 当前状态（便利读取，来自 joint_states）────────────────────────
     def get_current_joints(self) -> list[float]:
-        """读当前关节角（来自 joint_states）。"""
+        """读当前 6 臂关节角（来自 /joint_states）。
+
+        ⚠️ 用【独立 node + 独立 executor】订阅（同 allow_collisions 的 helper 模式）——
+        实测挂在 self.node（pymoveit2 Reentrant 组 + 后台 executor）上的新订阅经常
+        不触发回调（demo 的 TF listener 也是同样坑才独立成节点），第二次调用就收不到。
+        /joint_states 还有夹爪帧（isaac_gripper_action 只发 gripper_r_joint1）——
+        必须等【含臂关节名】的帧；超时抛错（不静默返回垃圾）。"""
+        import threading
         import time
 
+        import rclpy as _rclpy
+        from rclpy.executors import SingleThreadedExecutor as _STE
         from sensor_msgs.msg import JointState
 
+        helper = _rclpy.create_node("ur5_js_helper")
+        exe = _STE()
+        exe.add_node(helper)
+        spin_th = threading.Thread(target=exe.spin, daemon=True)
+        spin_th.start()
         holder: dict = {}
 
         def _cb(msg):
-            if not holder:
+            if "shoulder_lift_joint" in msg.name and not holder:
                 holder["msg"] = msg
 
-        sub = self.node.create_subscription(JointState, "/joint_states", _cb, 10)
+        sub = helper.create_subscription(JointState, "/joint_states", _cb, 10)
         try:
-            end = time.monotonic() + 3.0
+            end = time.monotonic() + 5.0
             while not holder and time.monotonic() < end:
                 time.sleep(0.02)
         finally:
-            self.node.destroy_subscription(sub)
+            exe.remove_node(helper)
+            helper.destroy_node()
+            exe.shutdown()
         if not holder:
-            return []
+            raise RuntimeError("5s 未收到含臂关节的 /joint_states 帧（broadcaster 挂了？）")
         msg = holder["msg"]
         name_to_pos = dict(zip(msg.name, msg.position))
         return [name_to_pos.get(n, 0.0) for n in JOINT_NAMES]
