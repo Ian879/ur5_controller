@@ -314,25 +314,33 @@ ping <jetson-ip>                               # ⏳ 能通 Jetson
 
 ### 7.1 启动顺序
 
-**① Jetson 上（起硬件层）：**
+**① Jetson 上（起硬件层）——一键：**
 
 ```bash
-docker exec -it ur5_hw bash
-ros2 launch ur5_bringup hardware.launch.py backend:=real
-# UR5_HOST 已由容器 env 带入（§5.3），不用再传 robot_ip:=
-# 需要抬升补偿时加 world_to_base_x/y/z/roll/pitch/yaw:=...（§3.5）
+cd <仓库根>
+./deploy/jetson/jetson_up.sh              # 等价于：确保容器在 + docker exec 起 launch（前台，Ctrl-C 停）
+# 变体：
+#   ROBOT_IP=10.67.64.5 ./deploy/jetson/jetson_up.sh      # 换 IP
+#   ./deploy/jetson/jetson_up.sh --build                  # 镜像不在先构建
+#   ./deploy/jetson/jetson_up.sh --shell                  # 只进容器调试
+#   ./deploy/jetson/jetson_up.sh world_to_base_z:=0.75    # 抬升补偿等 launch 参数透传（§3.5）
+#   ./deploy/jetson/jetson_down.sh                        # 停容器
 ```
 
 观察点：ur_driver 连上控制柜、`scaled_joint_trajectory_controller` 激活、
 `/joint_states` 开始跳。**外部控制**：UR 示教器会自动进入程序运行（externalcontrol 接管）。
 
-**② 服务器上（起规划层）：**
+**② 服务器上（规划层 + 感知）——一键：**
 
 ```bash
 cd ~/projects/shengzhi/ur5_controller
-source tools/source_env.sh
-ros2 launch ur5_bringup planning.launch.py use_sim_time:=false launch_rviz:=true
+./tools/bringup_real.sh                   # tmux 5 窗：plan | fp_server | mask | fp_node | client
+# 变体：RVIZ=0 / ATTACH=0 / MASK=sam|gt；停：./tools/bringup_real_down.sh
+# 脚本会探测 /joint_states：Jetson 侧没起会 warn（起来后自动互通，无需重启本侧）
 ```
+
+（手工等价命令：`source tools/source_env.sh && ros2 launch ur5_bringup
+planning.launch.py use_sim_time:=false launch_rviz:=true`，fp 三件套见 §9。）
 
 ### 7.2 缝合检查表（逐项过）
 
@@ -434,15 +442,12 @@ POSE_SOURCE=fp ros2 run ur5_motion demo_grasp
 ### 10.1 每日启动（真机）
 
 ```bash
-# ① Jetson
-docker exec -it ur5_hw bash
-ros2 launch ur5_bringup hardware.launch.py backend:=real
-# ② 服务器
-cd ~/projects/shengzhi/ur5_controller && source tools/source_env.sh
-ros2 launch ur5_bringup planning.launch.py use_sim_time:=false launch_rviz:=true
-# ③ 服务器（感知，需要时）
-# fp 三件套见 §9
-# ④ demo
+# ① Jetson（硬件层）
+./deploy/jetson/jetson_up.sh                       # Ctrl-C 停 launch；jetson_down.sh 停容器
+# ② 服务器（规划层 + 感知，一键 5 窗）
+cd ~/projects/shengzhi/ur5_controller
+./tools/bringup_real.sh                            # 停：./tools/bringup_real_down.sh
+# ③ demo（tmux client 窗或任一 source 过的 shell）
 POSE_SOURCE=fp ros2 run ur5_motion demo_grasp
 ```
 
@@ -450,11 +455,11 @@ POSE_SOURCE=fp ros2 run ur5_motion demo_grasp
 
 | 层 | 仿真 | 真机 |
 |---|---|---|
-| 一键编排 | `./tools/bringup_sim.sh`（7 窗） | 无（两机手工，见 §10.1） |
+| 一键编排 | `./tools/bringup_sim.sh`（7 窗） | 服务器 `./tools/bringup_real.sh`（5 窗）+ Jetson `./deploy/jetson/jetson_up.sh` |
 | 硬件层 | tmux hw 窗（isaac 桥 + `hardware.launch.py backend:=isaac`） | Jetson 容器内 `hardware.launch.py backend:=real` |
 | 规划层 | tmux plan 窗（`planning.launch.py use_sim_time:=true`） | `planning.launch.py use_sim_time:=false` |
 | 单机全栈 | `ros2 launch ur5_bringup full_stack.launch.py backend:=mock|isaac` | （跨机不用） |
-| 停止 | `./tools/bringup_down.sh` | 各窗 Ctrl-C + `docker stop ur5_hw` |
+| 停止 | `./tools/bringup_down.sh` | 服务器 `bringup_real_down.sh` + Jetson `jetson_down.sh` |
 
 ### 10.3 常用诊断
 
