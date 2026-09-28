@@ -63,5 +63,8 @@ ENV ROS_DOMAIN_ID=0 \
 
 COPY deploy/jetson/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
+# docker exec 的交互 bash 不走 ENTRYPOINT——靠 .bashrc 自动 source 环境，
+# 否则 exec 进去 ros2 launch 找不到 ur5_bringup 包。
+RUN echo '. /opt/ros/humble/setup.sh 2>/dev/null; . /ws/install/setup.bash 2>/dev/null' >> /root/.bashrc
 ENTRYPOINT ["/entrypoint.sh"]
 CMD ["bash"]
