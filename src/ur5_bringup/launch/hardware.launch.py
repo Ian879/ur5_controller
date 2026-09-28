@@ -42,15 +42,24 @@ def _setup(context, *args, **kwargs):
     elif backend == "real":
         # robot_ip 合法性由 real_robot.launch.py 自己把关（缺 IP 时 raise）
         actions = [_include("real_robot.launch.py", {"robot_ip": robot_ip})]
-        # Lebai 串口夹爪（硬件层成员）：提供 gripper/* services。
-        # NOTE: 非 control_msgs/GripperCommand action——MoveIt GripperCommand 句柄
-        #   要命令它需另起桥（阶段2 工作，见 full_stack 旧注释 / jetson_deployment.md）。
+        # Lebai 串口夹爪（硬件层成员）：serial_gripper 提供 gripper/* services +
+        # gripper/state（含位置反馈）；real_gripper_action 把它包成与 isaac 版
+        # 同名同契的 GripperCommand action（lebai_gripper_controller/gripper_cmd），
+        # demo 的 GripperClient 零改动。串口建议 udev 别名（教程 §4.4）。
         actions.append(
             Node(
                 package="lebai_driver",
                 executable="serial_gripper",
                 name="lebai_serial_gripper",
                 parameters=[{"port_name": LaunchConfiguration("gripper_port")}],
+                output="screen",
+            )
+        )
+        actions.append(
+            Node(
+                package="ur5_motion",
+                executable="real_gripper_action",
+                name="real_gripper_action",
                 output="screen",
             )
         )

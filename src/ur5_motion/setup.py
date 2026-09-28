@@ -30,6 +30,8 @@ setup(
             "sync_scene = ur5_motion.demos.sync_scene:main",
             "world_sync = ur5_motion.world_sync_node:main",
             "isaac_gripper_action = ur5_motion.isaac_gripper_action:main",
+            "real_gripper_action = ur5_motion.real_gripper_action:main",
+            "handeye_calib = ur5_motion.handeye_calib:main",
             "sam_segmentation = ur5_motion.sam_segmentation:main",
             "grasp_plan = ur5_motion.grasp_planner:main",
         ],

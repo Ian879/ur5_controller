@@ -377,28 +377,47 @@ joint_states/TF/`/compute_ik`；`go_home` = move_group→控制器 action 链）
 ### 8.1 Lebai 夹爪
 
 1. 接线 + udev 别名（§4.4），启动加 `gripper_port:=/dev/lebai_gripper`。
-2. `hardware.launch.py backend:=real` 已自动起 `lebai_driver/serial_gripper`
-   （提供 `gripper/*` services，如 `set_position`）。
-3. **必做：action 桥**（demo 的 `GripperClient` 说话的接口是
-   `control_msgs/GripperCommand` action，对齐仿真里的
-   `lebai_gripper_controller/gripper_cmd`）：写一个小 rclpy 节点把 serial_gripper 的
-   services 包成同名 action server，demo 代码零改动。**抓取验证逻辑**（夹住 ≈0.59 rad
-   vs 空夹 ≈0）依赖位置反馈——串口协议里确认能读到实际开口，读不到就要换验证手段。
-4. **TCP 标定重做**：`GRIPPER_TIP_OFFSET`/`TCP_LATERAL_X` 环境变量现在灌的是 isaac
+2. `hardware.launch.py backend:=real` 已自动起 **serial_gripper + real_gripper_action
+   两件套**：serial_gripper 提供 `gripper/*` services 与 `gripper/state`（10Hz 含位置
+   反馈）；`ur5_motion/real_gripper_action` 把它包成与 isaac 版同名同契的
+   GripperCommand action（`lebai_gripper_controller/gripper_cmd`）——demo 的
+   GripperClient 零改动，抓取验证（开口 ≥0.25 rad 判夹住）直接可用。
+   已用伪驱动集成测试验证过契约（5 用例：到位/半开/夹阻 stall+实际开口/
+   /joint_states 转发/单位映射）。⏳ 现场只验两件事：
+   - `gripper/state` 的 position 单位是不是 0..100 行程幅值（不是的话
+     `--ros-args -p amplitude_max:=<实际满行程>` 调，桥的注释有说明）；
+   - 串口反馈真的在动（`ros2 topic echo /gripper/state`，手动捏手指看数字）。
+3. **TCP 标定重做**：`GRIPPER_TIP_OFFSET`/`TCP_LATERAL_X` 环境变量现在灌的是 isaac
    lebai 夹爪的仿真标定值（0.17127 / 0.0265），真机装好后必须重新标定（GRASP_INSPECT
    法：相机看手指跨位 + 深度图）。
 
 ### 8.2 Orbbec Gemini 2 相机
 
 1. `hardware.launch.py backend:=real` 已自动起 `orbbec_camera/gemini2.launch.py`
-   （`publish_tf:=false`、`depth_registration:=true`，TF 子树由本 launch 统一发）。
+   （`publish_tf:=false`、`depth_registration:=true`，TF 子树由 URDF 出）。
 2. 话题契约（下游 FP 依赖）：
    - `/camera/color/image_raw` + `/camera/color/camera_info`（frame: `camera_color_optical_frame`）
    - `/camera/depth/image_rect_raw` + `/camera/depth/camera_info`
 3. 带宽：fp_node 按需触发，观测瞬间几帧压缩 RGB，GbE 绰绰有余；Jetson 上**不开点云**。
-4. **手眼标定（eye-in-hand）**：替换 `camera.launch.py` 里 `tool0→camera_link` 占位 TF
-   （z=0.05, identity）为实测值（easy_handeye 或手写 AX=XB）。标定质量直接决定 FP 位姿
-   在 base 系的准确性——FP 的 z 误差靠侧抓策略兜底（仿真已验证），但外参错了 xy 也歪。
+4. **手眼标定（eye-in-hand）——工具已备好**：`ur5_motion/handeye_calib`
+   （求解器 `handeye_solver.py` 纯 numpy，合成数据单测过：0.3mm/0.1° 检测噪声 →
+   旋转 ≤0.12°、平移 ≤0.5mm）。相机 mount 的 TF 在 URDF 的
+   `flange_to_camera_link` joint（当前是 USD 实测占位值），标定工具直接回写它——
+   服务器 moveit 与 Jetson RSP 吃同一份 URDF，单一事实源。流程：
+   ```bash
+   # ① 起真机栈后（能看到相机话题+TF），robot env 跑（要 cv2）：
+   $HOME/.conda/envs/robot/bin/python -m ur5_motion.handeye_calib --ros-args \
+     -p marker_length:=0.05 -p marker_id:=0
+   # ② 打印 6x6_100 字典 id=0 的 ArUco，量准边长，贴在固定物上
+   # ③ RViz/示教把臂挪 ≥8 个朝向多样的位姿（标记始终在画面里），每个：
+   ros2 service call /handeye_calib/capture std_srvs/srv/Trigger {}
+   # ④ 求解（打印建议 origin）：
+   ros2 service call /handeye_calib/solve std_srvs/srv/Trigger {}
+   # ⑤ 量级合理后回写（自动留 .bak）并重启栈：
+   #   重跑节点加 -p write_urdf:=true 再 solve 一次
+   ```
+   标定质量取决于位姿多样性（旋转轴别全同轴）；capture/solve 的日志会报检测失败，
+   异常位姿换个姿势重采即可。标定坏了 FP 的 xy 全歪——侧抓策略只兜 z 误差。
 
 ### 8.3 真机分割（本阶段最大风险项）
 
