@@ -7,9 +7,14 @@ C_CYAN=$'\033[36m'; C_GRN=$'\033[32m'; C_OFF=$'\033[0m'
 log() { printf "${C_CYAN}[down]${C_OFF} %s\n" "$*"; }
 
 SESSION="ur5_sim"
-# 脚本自身要 ros2 列节点验证，尽量 source（失败不阻塞）
+# 脚本自身要 ros2 列节点验证，尽量 source（失败不阻塞）。
+# ⚠️ source source_env.sh 会被 humble setup.bash 的未设变量在 set -u 下杀掉
+#    （同 bringup_sim.sh 的坑：unbound variable 是 expansion error，|| true 救不了）
+#    ——source 前临时关 -u -o pipefail，source 完再开。
+set +u +o pipefail
 # shellcheck disable=SC1091
 source "$(dirname "${BASH_SOURCE[0]}")/source_env.sh" >/dev/null 2>&1 || true
+set -uo pipefail
 
 log "杀 tmux session $SESSION ..."
 tmux kill-session -t "$SESSION" 2>/dev/null && log "session killed" || log "无 session"

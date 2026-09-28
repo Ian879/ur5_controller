@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# isaac+感知 一键启动（tmux 6 窗口）。把 5-6 个手动终端压成 1 命令。
+# isaac+感知 一键启动（tmux 7 窗口）。把 5-7 个手动终端压成 1 命令。
 # 按依赖顺序拉起，每步健康检查（超时只 warn 不阻塞），最后 attach。
 #
 # 用法：
@@ -9,7 +9,8 @@
 #   ATTACH=0 ./tools/bringup_sim.sh      # 不 attach（后台起完即退出）
 #   ./tools/bringup_down.sh              # 全停
 #
-# 6 窗口：isaac | ros | fp_server | mask | fp_node | client
+# 7 窗口：isaac | hw | plan | fp_server | mask | fp_node | client
+# （hw/plan 分窗 = 真机方案A 的缝：硬件层↔规划层只靠 DDS，未来分居 Jetson/服务器）
 # 进程隔离是 ABI 硬墙（isaac 3.12 / ros 3.10 / robot-conda 3.10 / fp_server 3.11），无法合并，
 # 本脚本只做编排（每窗对应 env + 顺序 + 健康检查），不改任何节点代码。
 set -euo pipefail
@@ -80,29 +81,43 @@ tmux send-keys -t "$SESSION:isaac" \
   "export RMW_IMPLEMENTATION=$RMW_IMPLEMENTATION; cd $ISAAC && conda deactivate 2>/dev/null; source setup_ros_env.sh && ./python.sh $REPO/isaac_scripts/ur5_isaac_bridge.py --stream --robot_prim /World/ur5 --object_prim /World/cola" C-m
 _wait_for "isaac /clock" "timeout 3 ros2 topic echo --once /clock 2>/dev/null | grep -q sec" 90
 
-# ── 窗 2: full_stack（py3.10） ────────────────────────────
-log "起 full_stack backend:=isaac（窗 ros）..."
-tmux new-window -t "$SESSION" -n ros
+# ── 窗 2: 硬件层 hw（controller_manager+控制器+RSP+相机TF；真机=Jetson 侧） ──
+log "起硬件层 hardware.launch.py（窗 hw）..."
+tmux new-window -t "$SESSION" -n hw
 RVIZ_ARG="launch_rviz:=$([ "$RVIZ" = "1" ] && echo true || echo false)"
-tmux send-keys -t "$SESSION:ros" \
-  "export RMW_IMPLEMENTATION=$RMW_IMPLEMENTATION; cd $REPO && source tools/source_env.sh && ros2 launch ur5_bringup full_stack.launch.py backend:=isaac $RVIZ_ARG" C-m
+tmux send-keys -t "$SESSION:hw" \
+  "export RMW_IMPLEMENTATION=$RMW_IMPLEMENTATION; cd $REPO && source tools/source_env.sh && ros2 launch ur5_bringup hardware.launch.py backend:=isaac" C-m
+# 门禁 = hw 窗日志里控制器激活行（真实条件，免受 ros2 CLI/DDS 发现延迟影响）。
+# 预算 420s：Isaac 桥冷启动出 /isaac_joint_states 实测可到 4-5 分钟（热缓存才 30-60s），
+# spawner 会一直重试到激活， TopicBasedSystem 一有数据它就成——门禁等它即可
+# （2026-09-28 实测：120s/180s 固定预算门禁两次都在控制器激活前耗尽）。
+_wait_for "hw 控制器激活" "tmux capture-pane -t $SESSION:hw -p 2>/dev/null | grep -q 'Configured and activated joint_state_broadcaster'" 420
+
+# ── 窗 3: 规划层 plan（move_group+world_sync；真机=GPU 服务器侧） ──
+log "起规划层 planning.launch.py（窗 plan）..."
+tmux new-window -t "$SESSION" -n plan
+tmux send-keys -t "$SESSION:plan" \
+  "export RMW_IMPLEMENTATION=$RMW_IMPLEMENTATION; cd $REPO && source tools/source_env.sh && ros2 launch ur5_bringup planning.launch.py use_sim_time:=true $RVIZ_ARG" C-m
 _wait_for "move_group" "timeout 4 ros2 node list 2>/dev/null | grep -q '^/move_group$'" 60
 
-# ── 窗 3: fp_server（py3.11） ─────────────────────────────
+# ── 窗 4: fp_server（py3.11） ─────────────────────────────
 log "起 fp_server（窗 fp_server）..."
 tmux new-window -t "$SESSION" -n fp_server
 tmux send-keys -t "$SESSION:fp_server" \
   "cd $JIAYIN && PYTHONPATH=\$PWD conda run --no-capture-output -p envs/fp python server/fp_server.py" C-m
 _wait_for "fp_server /health" "curl -sf localhost:8765/health" 40
 
-# ── 窗 4: mask（py3.10 robot） ────────────────────────────
+# ── 窗 5: mask（py3.10 robot） ────────────────────────────
 log "起 mask=$MASK（窗 mask）..."
 tmux new-window -t "$SESSION" -n mask
 tmux send-keys -t "$SESSION:mask" \
   "export RMW_IMPLEMENTATION=$RMW_IMPLEMENTATION; cd $REPO && source tools/source_env.sh && $ROBOT_PY src/ur5_motion/ur5_motion/$MASK_FILE" C-m
-_wait_for "/segmentation publisher" "timeout 3 ros2 topic info /segmentation 2>/dev/null | grep -qE 'Publisher count: [1-9]'" 15
+# 门禁 = mask 窗日志里节点首行（构造即建 publisher）。不用 `ros2 topic info`：
+# isaac 高负载下 fastrtps 发现滞后实测 65-146s，publisher 明明在但 daemon 图看不见，
+# 任何预算都会误报（2026-09-28 实测 60s/90s 两版门禁全期误报超时）。
+_wait_for "mask 节点就绪" "tmux capture-pane -t $SESSION:mask -p 2>/dev/null | grep -qE '\[(gt_mask_from_depth|sam_segmentation)\]'" 60
 
-# ── 窗 5: fp_node（py3.10 robot） ─────────────────────────
+# ── 窗 6: fp_node（py3.10 robot） ─────────────────────────
 log "起 fp_node（窗 fp_node）..."
 tmux new-window -t "$SESSION" -n fp_node
 # 复用 /tmp/start_fp_node.sh 的 env（humble + PYTHONPATH jiayin + robot python）。
@@ -112,14 +127,14 @@ tmux send-keys -t "$SESSION:fp_node" \
   "source /opt/ros/humble/setup.bash; export ROS_DOMAIN_ID=0 RMW_IMPLEMENTATION=$RMW_IMPLEMENTATION; export PYTHONPATH=$JIAYIN:\$PYTHONPATH; $ROBOT_PY -u $JIAYIN/ros2_nodes/fp_node.py --ros-args -p use_sim_time:=true" C-m
 _wait_for "/foundationpose/track" "timeout 3 ros2 service list 2>/dev/null | grep -q '/foundationpose/track'" 15
 
-# ── 窗 6: client（空 shell 备好环境） ─────────────────────
+# ── 窗 7: client（空 shell 备好环境） ─────────────────────
 tmux new-window -t "$SESSION" -n client
 tmux send-keys -t "$SESSION:client" "export RMW_IMPLEMENTATION=$RMW_IMPLEMENTATION; cd $REPO && source tools/source_env.sh" C-m
 
 # 选到 client 窗
 tmux select-window -t "$SESSION:client"
 
-ok "全部就绪 ✓  6 窗：isaac | ros | fp_server | mask | fp_node | client"
+ok "全部就绪 ✓  7 窗：isaac | hw | plan | fp_server | mask | fp_node | client"
 echo "  Ctrl-b 窗口号 切窗 | Ctrl-b d 脱离（后台继续跑）| demo: POSE_SOURCE=fp ros2 run ur5_motion demo_grasp"
 echo "  停：./tools/bringup_down.sh"
 
