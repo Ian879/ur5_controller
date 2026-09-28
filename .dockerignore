@@ -1,0 +1,14 @@
+# Docker build context 瘦身（context=仓库根，见 deploy/jetson/compose.yaml）。
+# 只留 src/ 硬件层所需（Dockerfile 里的 COPY 自会挑选）。
+.git
+.gitignore
+.claude
+scenes/
+docs/
+isaac_scripts/
+tools/
+todo.md
+build/
+install/
+log/
+*.zip

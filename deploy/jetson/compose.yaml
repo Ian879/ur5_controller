@@ -1,0 +1,29 @@
+# Jetson 硬件层容器（方案A）。用法（在 Jetson 上、仓库根目录）：
+#   docker compose -f deploy/jetson/compose.yaml up -d --build
+#   docker exec -it ur5_hw bash
+#   > ros2 launch ur5_bringup hardware.launch.py backend:=real robot_ip:=192.168.1.102
+#
+# 网络要点（都是硬要求，缺一不可）：
+#   network_mode:host —— DDS 跨机发现 + 对 UR 控制柜 500Hz RTDE 低延迟；
+#   ipc:host          —— fastrtps 共享内存传输；
+#   privileged+devices —— USB 串口夹爪 / Orbbec 相机（/dev/video*）。
+services:
+  ur5_hw:
+    build:
+      context: ../..
+      dockerfile: deploy/jetson/Dockerfile
+      # 构建（apt/colcon 要外网）走宿主网络：部分环境 docker bridge 无 egress
+      # （2026-09-28 开发服务器实测 bridge 下 apt 全超时，host 下正常）。
+      network: host
+    image: ur5-hw:humble
+    container_name: ur5_hw
+    network_mode: host
+    ipc: host
+    privileged: true
+    devices:
+      # Lebai 串口夹爪（按实际路径改；Orbbec 相机走 privileged 的 /dev/video*）
+      - /dev/ttyUSB0:/dev/ttyUSB0
+    environment:
+      - ROS_DOMAIN_ID=0
+      - RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+    command: sleep infinity
