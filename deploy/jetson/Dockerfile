@@ -25,11 +25,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-humble-rosidl-default-generators \
     ros-humble-tf-transformations \
     python3-colcon-common-extensions \
+    python3-pip \
     git \
     ca-certificates \
     libusb-1.0-0-dev \
     libudev-dev \
     && rm -rf /var/lib/apt/lists/*
+
+# ⚠ pylebai（Lebai 夹爪 SDK）必须显式装：lebai_driver 的 setup.py install_requires
+# 声明了它，但 colcon build 不会履行——不装的话 serial_gripper 运行时才炸
+# （from pylebai.gripper import Gripper，2026-10-09 实测镜像里没有它）。
+# PyPI 有 cp310 x86_64/aarch64 双架构 wheel（版本对齐 lebai_driver 的 >=2.0,<3.0）。
+RUN pip3 install --no-cache-dir 'pylebai>=2.0.0,<3.0.0'
 
 # orbbec_camera 的构建依赖（ur_robot_driver 不拉；其 CMakeLists find_package 逐个要）
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -50,6 +57,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     nlohmann-json3-dev \
     && rm -rf /var/lib/apt/lists/*
 
+# 8G Jetson 防 OOM：C++ 编译并行度可调。默认空=全核（amd64 烟测无压力）；
+# Jetson 上 OOM（cc1plus 被 kill）就 --build-arg JOBS=2 重来。
+ARG JOBS=""
+
 WORKDIR /ws
 # 只拷硬件层需要的包（isaac_moveit/moveit_resources 不进；.dockerignore 已排除
 # scenes/docs/tools 等）。⚠ ur5_motion 必须进：real_gripper_action/handeye_calib
@@ -60,6 +71,7 @@ COPY src/third_party/lebai-ros-sdk/lebai_interfaces /ws/src/lebai_interfaces
 COPY src/third_party/lebai-ros-sdk/lebai_driver /ws/src/lebai_driver
 COPY src/third_party/OrbbecSDK_ROS2 /ws/src/OrbbecSDK_ROS2
 RUN . /opt/ros/humble/setup.sh \
+    && if [ -n "$JOBS" ]; then export CMAKE_BUILD_PARALLEL_LEVEL="$JOBS"; fi \
     && colcon build --cmake-args -DCMAKE_BUILD_TYPE=Release \
        --packages-up-to ${HW_PKGS} \
     && rm -rf build log

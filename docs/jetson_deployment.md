@@ -260,6 +260,9 @@ ros2 launch ur5_bringup hardware.launch.py --show-args    # 能打印参数表
   `ros-humble-tf-transformations`（lebai_driver 运行时依赖；**PyPI 上没有这个包**，
   是 ROS apt 专属，别走 pip）、orbbec 的 15 个构建依赖（cv_bridge/image_transport/
   glog/nlohmann-json3-dev 等，见 Dockerfile 第二个 RUN）。
+- pip：`pylebai>=2.0,<3.0`（Lebai 夹爪 SDK——**必须显式装**：lebai_driver 的
+  install_requires 声明了它但 colcon build 不履行；PyPI 有 cp310 x86_64/aarch64
+  双架构 wheel。2026-10-09 实测漏装时 serial_gripper 运行时才炸）。
 - colcon 子集（6 包）：`ur5_bringup`、`lebai_interfaces`、`lebai_driver`、
   `orbbec_camera_msgs`、`orbbec_camera`、`ur5_motion`。**ur5_motion 必须进镜像**：
   `hardware.launch.py backend:=real` 在容器里拉 `ur5_motion/real_gripper_action`
@@ -277,7 +280,9 @@ ros2 launch ur5_bringup hardware.launch.py --show-args    # 能打印参数表
 | `E: Package 'nlohmann-json-dev' has no installation candidate` | jammy 里叫 `nlohmann-json3-dev` | 已修 ✓ |
 | `pip3 install tf-transformations` → `from versions: none` | PyPI 上没有此包 | 用 apt 的 `ros-humble-tf-transformations`（已修 ✓） |
 | orbbec_camera CMake 找不到 `cv_bridge` 等 | ur 驱动不拉这些依赖 | 已在 Dockerfile 补齐 ✓ |
-| orbbec 在 arm64 报缺预编译库 ⏳ | OrbbecSDK 平台库不全 | `--build-arg HW_PKGS="ur5_bringup lebai_driver ur5_motion"` 先验其余，orbbec 单独处理 |
+| orbbec 在 arm64 报缺预编译库 | ~~OrbbecSDK 平台库不全~~ **已排除**：vendored 源里 `SDK/lib/arm64/` 全套预编译库 + CMakeLists 原生 aarch64/TEGRA 分支（2026-10-09 本机核实） | 理论可直接编；真编挂了再 `--build-arg HW_PKGS="ur5_bringup lebai_driver ur5_motion"` 降级 |
+| Jetson 上 `cc1plus 被 killed` / 构建中途死 | 8G 统一内存扛不住全核编 orbbec（C++） | `--build-arg JOBS=2` 重来（Dockerfile 已留开关）；用 NVMe 别用 SD |
+| serial_gripper 报 `No module named pylebai` | 旧镜像没装 pylebai（2026-10-09 已修进 Dockerfile） | 重新 build 镜像 |
 
 ---
 
