@@ -44,8 +44,8 @@ from rclpy.node import Node
 from sensor_msgs.msg import CameraInfo, Image
 from std_srvs.srv import Trigger
 
-from .grasp_geometry import quat_to_rotmat
-from .handeye_solver import compose_mount, rot_from_rpy, rpy_from_rot, solve_hand_eye
+from .handeye_solver import (compose_mount, quat_to_rotmat, rot_from_rpy,
+                             rpy_from_rot, solve_hand_eye)
 
 URDF_REL = "urdf/ur5_with_gripper.urdf.xacro"
 JOINT_NAME = "flange_to_camera_link"

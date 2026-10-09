@@ -51,6 +51,20 @@ def _project_to_so3(M: np.ndarray) -> np.ndarray:
     return R
 
 
+def quat_to_rotmat(q: Sequence[float]) -> np.ndarray:
+    """四元数 [x,y,z,w] → 3x3 旋转矩阵。
+
+    自带而不 import grasp_geometry 的同名函数——那边的 v2 版本尚未提交，
+    Jetson 从远端 clone 时拿不到（2026-10-09 实测 HEAD 里没有），标定代码
+    不该依赖抓取侧的 WIP。"""
+    x, y, z, w = (float(v) for v in q)
+    return np.array([
+        [1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)],
+        [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
+        [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)],
+    ])
+
+
 def rot_from_rpy(rpy: Sequence[float]) -> np.ndarray:
     """URDF 固定轴 rpy (x,y,z) → R = Rz(yaw)·Ry(pitch)·Rx(roll)。"""
     rx, ry, rz = (float(v) for v in rpy)

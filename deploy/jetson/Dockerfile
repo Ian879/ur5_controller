@@ -11,10 +11,14 @@
 FROM ros:humble
 
 ARG DEBIAN_FRONTEND=noninteractive
-# HW_PKGS：colcon 构建子集。若 OrbbecSDK 在某架构缺预编译库导致构建失败，可
-#   --build-arg HW_PKGS="ur5_bringup lebai_driver"
+# HW_PKGS：colcon 构建子集。ur5_motion 也要——hardware.launch.py real 分支在
+# 容器里拉 ur5_motion/real_gripper_action（夹爪 action 桥），handeye_calib 也
+# 在这包里（ament_python，只多几百 KB；demo/planner 入口在里面但容器不会调它们，
+# 缺 pymoveit2 不影响 build，入口是惰性 import）。
+# 若 OrbbecSDK 在某架构缺预编译库导致构建失败，可
+#   --build-arg HW_PKGS="ur5_bringup lebai_driver ur5_motion"
 # 先验证其余部分（arm64 现场再处理 orbbec，见 docs/jetson_deployment.md）。
-ARG HW_PKGS="ur5_bringup lebai_driver orbbec_camera"
+ARG HW_PKGS="ur5_bringup lebai_driver orbbec_camera ur5_motion"
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-humble-ur-robot-driver \
@@ -47,9 +51,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /ws
-# 只拷硬件层需要的包：规划层（ur5_motion/isaac_moveit/moveit_resources）不进镜像。
-# （.dockerignore 已排除 scenes/docs/tools 等，build context 亦只含 src 所需）
+# 只拷硬件层需要的包（isaac_moveit/moveit_resources 不进；.dockerignore 已排除
+# scenes/docs/tools 等）。⚠ ur5_motion 必须进：real_gripper_action/handeye_calib
+# 在里面，hardware.launch.py backend:=real 会在容器里起前者的可执行文件。
 COPY src/ur5_bringup /ws/src/ur5_bringup
+COPY src/ur5_motion /ws/src/ur5_motion
 COPY src/third_party/lebai-ros-sdk/lebai_interfaces /ws/src/lebai_interfaces
 COPY src/third_party/lebai-ros-sdk/lebai_driver /ws/src/lebai_driver
 COPY src/third_party/OrbbecSDK_ROS2 /ws/src/OrbbecSDK_ROS2

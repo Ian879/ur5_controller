@@ -9,7 +9,8 @@ import numpy as np
 import pytest
 
 from ur5_motion.handeye_solver import (
-    _homog, _inv_homog, compose_mount, rot_from_rpy, rpy_from_rot, solve_hand_eye,
+    _homog, _inv_homog, compose_mount, quat_to_rotmat, rot_from_rpy,
+    rpy_from_rot, solve_hand_eye,
 )
 
 RNG = np.random.default_rng(20260928)
@@ -74,6 +75,15 @@ def test_too_few_poses_raises():
     Hg, Hc, _, _ = _make_problem(2, RNG)
     with pytest.raises(ValueError):
         solve_hand_eye(Hg, Hc)
+
+
+def test_quat_to_rotmat():
+    """quat→R：单位四元数=I；绕 z 90°；绕 x 90°（handeye_calib 的 TF 转换路径）。"""
+    assert np.allclose(quat_to_rotmat([0, 0, 0, 1]), np.eye(3), atol=1e-12)
+    rz90 = quat_to_rotmat([0, 0, math.sqrt(0.5), math.sqrt(0.5)])
+    assert np.allclose(rz90, rot_from_rpy([0, 0, math.pi / 2]), atol=1e-9)
+    rx90 = quat_to_rotmat([math.sqrt(0.5), 0, 0, math.sqrt(0.5)])
+    assert np.allclose(rx90, rot_from_rpy([math.pi / 2, 0, 0]), atol=1e-9)
 
 
 def test_rpy_roundtrip():
