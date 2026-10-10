@@ -26,6 +26,6 @@ services:
     environment:
       - ROS_DOMAIN_ID=0
       - RMW_IMPLEMENTATION=rmw_fastrtps_cpp
-      # 真机 IP（不设的话 launch 时必须带 robot_ip:=10.67.64.5）
-      - UR5_HOST=10.67.64.5
+      # 真机 IP（不设的话 launch 时必须带 robot_ip:=192.168.0.2）
+      - UR5_HOST=192.168.0.2
     command: sleep infinity

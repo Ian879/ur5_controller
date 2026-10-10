@@ -8,4 +8,4 @@
 #     ros2 launch ur5_bringup full_stack.launch.py backend:=real
 #  （无需再带 robot_ip:=，因为环境变量已设；也可临时 robot_ip:=x.x.x.x 覆盖）
 # ============================================================
-export UR5_HOST="10.67.64.5"
+export UR5_HOST="192.168.0.2"

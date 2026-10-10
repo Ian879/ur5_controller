@@ -3,7 +3,7 @@
 #
 # 用法（在 Jetson 上、仓库根目录）：
 #   ./deploy/jetson/jetson_up.sh                     # 默认 backend:=real
-#   ROBOT_IP=10.67.64.5 ./deploy/jetson/jetson_up.sh # 或环境变量 UR5_HOST
+#   ROBOT_IP=192.168.0.2 ./deploy/jetson/jetson_up.sh # 或环境变量 UR5_HOST
 #   ./deploy/jetson/jetson_up.sh --shell             # 只进容器不开 launch（调试）
 #   ./deploy/jetson/jetson_up.sh --build             # 镜像不在先构建（内网先 export http_proxy）
 #   ./deploy/jetson/jetson_up.sh world_to_base_z:=0.75   # 额外 launch 参数直接透传
@@ -12,7 +12,7 @@ set -euo pipefail
 
 IMAGE="${IMAGE:-ur5-hw:humble}"
 CONTAINER=ur5_hw
-UR5_HOST="${ROBOT_IP:-${UR5_HOST:-10.67.64.5}}"
+UR5_HOST="${ROBOT_IP:-${UR5_HOST:-192.168.0.2}}"
 GRIPPER_DEV="${GRIPPER_DEV:-/dev/ttyUSB0}"   # 阶段2 后建议 udev 别名 /dev/lebai_gripper
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 

@@ -39,7 +39,7 @@
                                         │  有线 LAN，全部 topic/service/action）
 ┌──────────────┐  以太网  ┌─────────────┴──────────────────────────┐
 │  UR5 控制柜   │◄────────►│  Jetson Xavier NX 8G（Docker ros:humble）│
-│ (10.67.64.5) │ 500Hz    │  hardware.launch.py backend:=real       │
+│ (192.168.0.2) │ 500Hz    │  hardware.launch.py backend:=real       │
 └──────────────┘  RTDE    │   = ur_robot_driver + controller_manager │
                            │   + Lebai 串口夹爪 + Orbbec Gemini2 相机  │
                            └────────────────────────────────────────┘
@@ -76,7 +76,7 @@
 
 | 设备 | 数量 | 连接 | 备注 |
 |---|---|---|---|
-| UR5 + 控制柜 | 1 | 控制柜网口 → 交换机 | IP `10.67.64.5`（现 `tools/robot_ip.sh` 里配的） |
+| UR5 + 控制柜 | 1 | 控制柜网口 → Jetson eth1（直连，不经交换机） | IP `192.168.0.2`（现 `tools/robot_ip.sh` 里配的） |
 | Jetson Xavier NX 8G（NVMe/SD + 电源） | 1 | 网口 → 交换机 | JetPack 5.x / Ubuntu 20.04 |
 | Orbbec Gemini 2 | 1 | USB3 → Jetson；机械安装在腕上（eye-in-hand） | 阶段2 才需要 |
 | Lebai 串口夹爪 | 1 | RS485/USB → Jetson（`/dev/ttyUSB0`） | 阶段2 才需要 |
@@ -97,7 +97,7 @@
 
 | 设备 | IP | 备注 |
 |---|---|---|
-| UR5 控制柜 | `10.67.64.5` | 已配在 `tools/robot_ip.sh`（UR5_HOST） |
+| UR5 控制柜 | `192.168.0.2` | 已配在 `tools/robot_ip.sh`（UR5_HOST）。注意 UR 走**独立直连网段**：Jetson 双网卡——eth0=`10.67.64.195`（内网/服务器侧），eth1=`192.168.0.10`（UR 专属）；服务器不直连 UR |
 | Jetson | `10.67.64.xx`（静态） | |
 | GPU 服务器 | 现有地址 | 与 Jetson 同网段/同交换机 |
 
@@ -132,7 +132,7 @@ RMW_IMPLEMENTATION=rmw_fastrtps_cpp # 三方一致（服务器 source_env.sh 已
 
 1. **装 externalcontrol URCap**（ur_robot_driver 的前提）：
    - 先在 UR 官网确认 URCap 版本与 Polyscope 版本兼容；
-   - URCap 里 Host IP 填 **Jetson 的 IP**，端口 `50002`。
+   - URCap 里 Host IP 填 **Jetson 在 UR 网段的地址 `192.168.0.10`**（eth1），端口 `50002`。
 2. **远程模式**：设置 → 系统 → 远程控制 → 切 Remote（ROS2 driver 控制的前提）。
 3. 上电 → brake release（松刹车）→ 确认 `robot_mode == RUNNING`、保护停机已复位。
 4. **保守速度**：首次联调前把关节速度/加速度限值调低（可在 ur 控制器 yaml 或示教器安装配置里）。
@@ -237,7 +237,7 @@ docker run -d --name ur5_hw \
   --network host --ipc host --privileged \
   --device /dev/ttyUSB0 \
   -e ROS_DOMAIN_ID=0 -e RMW_IMPLEMENTATION=rmw_fastrtps_cpp \
-  -e UR5_HOST=10.67.64.5 \
+  -e UR5_HOST=192.168.0.2 \
   ur5-hw:humble sleep infinity
 ```
 
@@ -295,7 +295,7 @@ cd ~/projects/shengzhi/ur5_controller
 colcon build                                   # ✓ 已构建（install/ 在）
 source tools/source_env.sh                     # ✓ 自动处理 conda 陷阱 + RMW + DOMAIN + UR5_HOST
 ros2 launch ur5_bringup planning.launch.py --show-args   # ✓ 能打印
-ping 10.67.64.5                                # ⏳ 能通 UR 柜
+ping 192.168.0.2                                # ⏳ 能通 UR 柜
 ping <jetson-ip>                               # ⏳ 能通 Jetson
 ```
 
@@ -328,7 +328,7 @@ ping <jetson-ip>                               # ⏳ 能通 Jetson
 cd <仓库根>
 ./deploy/jetson/jetson_up.sh              # 等价于：确保容器在 + docker exec 起 launch（前台，Ctrl-C 停）
 # 变体：
-#   ROBOT_IP=10.67.64.5 ./deploy/jetson/jetson_up.sh      # 换 IP
+#   ROBOT_IP=192.168.0.2 ./deploy/jetson/jetson_up.sh      # 换 IP
 #   ./deploy/jetson/jetson_up.sh --build                  # 镜像不在先构建
 #   ./deploy/jetson/jetson_up.sh --shell                  # 只进容器调试
 #   ./deploy/jetson/jetson_up.sh world_to_base_z:=0.75    # 抬升补偿等 launch 参数透传（§3.5）
