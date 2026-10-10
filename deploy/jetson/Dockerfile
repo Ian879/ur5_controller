@@ -11,14 +11,15 @@
 FROM ros:humble
 
 ARG DEBIAN_FRONTEND=noninteractive
-# HW_PKGS：colcon 构建子集。ur5_motion 也要——hardware.launch.py real 分支在
-# 容器里拉 ur5_motion/real_gripper_action（夹爪 action 桥），handeye_calib 也
-# 在这包里（ament_python，只多几百 KB；demo/planner 入口在里面但容器不会调它们，
-# 缺 pymoveit2 不影响 build，入口是惰性 import）。
+# HW_PKGS：colcon 构建子集。⚠ 2026-10-10 真机首跑教训：exec_depend 的包
+# --packages-up-to 不会带，但运行时全是刚需——
+#   ur5_motion（real_gripper_action/handeye_calib 在里面，launch 拉它们）
+#   lebai_lm3_support + lebai_resources（URDF 夹爪 macro 及其 mesh）
+#   orbbec_description（URDF 相机段）
 # 若 OrbbecSDK 在某架构缺预编译库导致构建失败，可
-#   --build-arg HW_PKGS="ur5_bringup lebai_driver ur5_motion"
+#   --build-arg HW_PKGS="ur5_bringup lebai_driver ur5_motion lebai_lm3_support lebai_resources orbbec_description"
 # 先验证其余部分（arm64 现场再处理 orbbec，见 docs/jetson_deployment.md）。
-ARG HW_PKGS="ur5_bringup lebai_driver orbbec_camera ur5_motion"
+ARG HW_PKGS="ur5_bringup lebai_driver orbbec_camera ur5_motion lebai_lm3_support lebai_resources orbbec_description"
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-humble-ur-robot-driver \
@@ -69,6 +70,8 @@ COPY src/ur5_bringup /ws/src/ur5_bringup
 COPY src/ur5_motion /ws/src/ur5_motion
 COPY src/third_party/lebai-ros-sdk/lebai_interfaces /ws/src/lebai_interfaces
 COPY src/third_party/lebai-ros-sdk/lebai_driver /ws/src/lebai_driver
+COPY src/third_party/lebai-ros-sdk/lebai_lm3_support /ws/src/lebai_lm3_support
+COPY src/third_party/lebai-ros-sdk/lebai_resources /ws/src/lebai_resources
 COPY src/third_party/OrbbecSDK_ROS2 /ws/src/OrbbecSDK_ROS2
 RUN . /opt/ros/humble/setup.sh \
     && if [ -n "$JOBS" ]; then export CMAKE_BUILD_PARALLEL_LEVEL="$JOBS"; fi \
