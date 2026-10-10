@@ -1,7 +1,10 @@
 [submodule "src/third_party/OrbbecSDK_ROS2"]
 	path = src/third_party/OrbbecSDK_ROS2
-	url = https://github.com/orbbec/OrbbecSDK_ROS2.git
-	branch = v2-main
+	# ⚠ 指向自家 fork：钉住的 ffbe4a84 是本项目的本地修复（补 gemini_2 的
+	# camera_depth_optical_frame，官方缺口），从未进过上游——指上游则
+	# clone --recurse-submodules 必失败（2026-10-10 Jetson 部署实测）。
+	url = https://github.com/Ian879/OrbbecSDK_ROS2.git
+	branch = v2-main-ur5
 [submodule "src/third_party/lebai-ros-sdk"]
 	path = src/third_party/lebai-ros-sdk
 	url = https://github.com/lebai-robotics/lebai-ros-sdk.git
