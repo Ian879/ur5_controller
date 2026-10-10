@@ -42,6 +42,11 @@
   <xacro:arg name="tool_tcp_port" default="54321"/>
   <xacro:arg name="use_fake_hardware" default="false"/>
   <xacro:arg name="fake_sensor_commands" default="false"/>
+  <!-- 反向 socket 读超时容忍（真机稳定性，2026-10-10 实测）：脚本读超时 = 20ms ×
+       (1+keep_alive_count)。默认 2 ≈ 60ms——Jetson 一次调度抖动就超时，external control
+       程序静默退出（机器人日志 "socket timeout waiting command for reverse socket"）。
+       25 ≈ 520ms 容忍。RT 模式（servoj 等）上限 200ms 不受影响（位置控制不封顶）。 -->
+  <xacro:arg name="keep_alive_count" default="25"/>
   <xacro:arg name="sim_gazebo" default="false"/>
   <xacro:arg name="sim_ignition" default="false"/>
   <xacro:arg name="simulation_controllers" default=""/>
@@ -78,6 +83,7 @@
             tool_device_name="$(arg tool_device_name)"
             tool_tcp_port="$(arg tool_tcp_port)"
             robot_ip="$(arg robot_ip)"
+            keep_alive_count="$(arg keep_alive_count)"
             script_filename="$(arg script_filename)"
             output_recipe_filename="$(arg output_recipe_filename)"
             input_recipe_filename="$(arg input_recipe_filename)"
