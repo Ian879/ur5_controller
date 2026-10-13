@@ -120,18 +120,27 @@ RMW_IMPLEMENTATION=rmw_fastrtps_cpp # 三方一致（服务器 source_env.sh 已
 - 凭据只存在于本机 shell 环境，**不要写进任何仓库文件**。
 - `no_proxy` 已含 `10.0.0.0/8`（UR 柜、Jetson、服务器互访不受影响）。
 
-### 2.4 时间同步（⚠ 必做，两机一致优先于绝对正确）
+### 2.4 时间同步（⚠ 必做；已用 chrony 全自动解决）
 
 真机无 sim time，move_group 用**服务器时钟**判 /joint_states 新旧度——Jetson 与服务器
 偏差超过 ~1s 就会让轨迹执行必挂（`CONTROL_FAILED(-4)`，日志 "couldn't receive full
 current joint state"，2026-10-13 真机实测 67s 偏差复现两轮）。
 
-- Jetson 无 RTC 电池（重启归零）且 NTP(UDP) 过不了 HTTP 代理 → 已装
-  `/usr/local/bin/ur5_timesync.sh`（cron 每 10 分钟 + 开机）：**ssh 拉服务器时间**
-  （受限密钥，只能跑 `date`）为主源，代理 HTTP Date 头兜底。
-- ⚠ 别把 Jetson 对到"绝对真理"（代理/NTP）：**服务器自己比真实时间快 ~69s**（它也没
-  NTP）——对到代理反而重新拉开两机偏差（实测踩过）。DDS 只在乎一致。
-- 正确的长久解：给服务器也配 NTP（需管理员），之后 Jetson timesync 主源可切代理。
+**已部署的 chrony 架构（2026-10-13）**——两机一致且绝对正确，重启自愈：
+
+```
+公司 NTP 10.35.29.237 (stratum 2)
+   ↑ server ... iburst
+GPU 服务器 chrony（stratum 3；local stratum 8 孤儿兜底 = NTP 失联时仍对 Jetson 服务）
+   ↑ server 10.67.64.64 iburst
+Jetson chrony（内网 UDP 直通，无需代理；makestep 1 3 开机自动步进）
+```
+
+- 两机 `/etc/chrony/chrony.conf` 都已配好（备份 `.orig` 在同目录）；`makestep` 让
+  Jetson 重启时钟归零后自动步进，无需人工。
+- ⚠ 教训（保留防复发）：NTP 是 UDP、HTTP 代理不转发；内网 DNS 服务器不开 123 端口。
+  早期用"SSH 拉时间脚本 + 代理 HTTP Date"是过渡方案（timesync.sh 已退役删除）。
+  **别让 Jetson 对到代理/外部真理而服务器不对**——两机一致优先于绝对正确。
 
 ---
 
@@ -545,6 +554,8 @@ docker logs ur5_hw --tail 50             # 容器日志
 | goal 被 `Goal was rejected by server` + Jetson 侧 "Controller is not running" | 示教器**停程序→再 play** 后 controller_stopper 的重激活批被 friction_model 竞态堵死 → scaled_JTC 留 inactive | 容器内补激活：`ros2 run controller_manager spawner scaled_joint_trajectory_controller friction_model_controller --controller-manager /controller_manager` |
 | go_home 规划出"腕整圈回转" | UR 报累积角（腕 355°，home 0°） | go_home 已内置就近 2π 等价（`2fde824`）；自定义运动也要同样处理 |
 | `Skipping invalid start state` | 臂停在自定义窄限位外（shoulder_lift 限 [-120°,30°]） | 手动把臂挪进限位区间（示教器看肩部值） |
+| go_home 卡死无输出 / 日志见 "more than one action server for ...gripper_cmd" | `real_gripper_action` 有多个实例——**用 pkill 重启 launch 会留孤儿**（它只杀 launch，杀不到 launch 派生的节点进程，重启几次就攒几个） | `docker restart ur5_hw` 一刀切干净（容器内全进程），再重起 launch——**重启硬件层一律用这个配方，别用 pkill** |
+| 服务器侧莫名 DDS 半瘫（新进程收不到数据） | 强杀过的 fastrtps 进程留下 SHM 陈锁/半伤状态 | 重启服务器规划层（bringup_real_down + up）；别手删 `/dev/shm/fastrtps_*`（会伤活进程） |
 
 ---
 

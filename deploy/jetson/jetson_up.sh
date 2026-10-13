@@ -44,7 +44,7 @@ fi
 # 容器在吗（在就直接复用——launch 参数不烤进容器，每次 exec 时给）
 if ! docker inspect "$CONTAINER" >/dev/null 2>&1; then
   echo "[jetson_up] 起容器 $CONTAINER（host 网络 + ipc + privileged，UR5_HOST=$UR5_HOST）..."
-  docker run -d --name "$CONTAINER" \
+  docker run -d --name "$CONTAINER" --restart unless-stopped \
     --network host --ipc host --privileged \
     --device "$GRIPPER_DEV" \
     -e ROS_DOMAIN_ID=0 \
@@ -53,6 +53,14 @@ if ! docker inspect "$CONTAINER" >/dev/null 2>&1; then
     "$IMAGE" sleep infinity
 else
   docker start "$CONTAINER" >/dev/null 2>&1 || true
+  # 幂等：容器里已有活着的 launch（上次没 Ctrl-C 干净/被 nohup 拉起的）→ docker restart
+  # 一刀切（杀 launch 杀不到它派生的节点进程，会攒 real_gripper_action 孤儿实例——
+  # 症状 "more than one action server"，2026-10-13 真机实测；restart 全清，无孤儿）。
+  if docker exec "$CONTAINER" bash -c "pgrep -f 'ros2 launch' >/dev/null" 2>/dev/null; then
+    echo "[jetson_up] 容器里有残留 launch —— docker restart 清场（避免节点孤儿实例）..."
+    docker restart "$CONTAINER" >/dev/null
+    sleep 5
+  fi
   # UR5_HOST 变了的话更新（容器只能重建才改 env——提示而不是静默用旧 IP）
   cur_ip="$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$CONTAINER" | sed -n 's/^UR5_HOST=//p')"
   [ "$cur_ip" = "$UR5_HOST" ] || echo "[jetson_up] ⚠ 容器 env UR5_HOST=$cur_ip 与当前 $UR5_HOST 不一致；以容器内为准。要改：docker rm $CONTAINER 后重跑本脚本"
