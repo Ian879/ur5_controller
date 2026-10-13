@@ -120,9 +120,18 @@ RMW_IMPLEMENTATION=rmw_fastrtps_cpp # 三方一致（服务器 source_env.sh 已
 - 凭据只存在于本机 shell 环境，**不要写进任何仓库文件**。
 - `no_proxy` 已含 `10.0.0.0/8`（UR 柜、Jetson、服务器互访不受影响）。
 
-### 2.4 时间同步（建议）
+### 2.4 时间同步（⚠ 必做，两机一致优先于绝对正确）
 
-三方装 chrony 或至少 `timedatectl` 对时。真机无 sim time，跨机 TF/日志时间戳都来自墙钟；不对时会让排查日志很痛苦（DDS 本身不依赖时间同步）。
+真机无 sim time，move_group 用**服务器时钟**判 /joint_states 新旧度——Jetson 与服务器
+偏差超过 ~1s 就会让轨迹执行必挂（`CONTROL_FAILED(-4)`，日志 "couldn't receive full
+current joint state"，2026-10-13 真机实测 67s 偏差复现两轮）。
+
+- Jetson 无 RTC 电池（重启归零）且 NTP(UDP) 过不了 HTTP 代理 → 已装
+  `/usr/local/bin/ur5_timesync.sh`（cron 每 10 分钟 + 开机）：**ssh 拉服务器时间**
+  （受限密钥，只能跑 `date`）为主源，代理 HTTP Date 头兜底。
+- ⚠ 别把 Jetson 对到"绝对真理"（代理/NTP）：**服务器自己比真实时间快 ~69s**（它也没
+  NTP）——对到代理反而重新拉开两机偏差（实测踩过）。DDS 只在乎一致。
+- 正确的长久解：给服务器也配 NTP（需管理员），之后 Jetson timesync 主源可切代理。
 
 ---
 
@@ -527,6 +536,15 @@ docker logs ur5_hw --tail 50             # 容器日志
 | fp_node 无响应 | 已知阻塞 gotcha | 重启 fp_node |
 | SAM 剥不出小物体 | 单点提示弱 | box/多点提示（§8.3） |
 | TF extrapolation 报错 | sim/wall 时戳混用 | 真机一切用墙钟，别带 `use_sim_time` |
+
+**真机联调实战坑（2026-10-13，全踩过）**
+
+| 症状 | 根因 | 处置 |
+|---|---|---|
+| go_home `CONTROL_FAILED(-4)` + "couldn't receive full current joint state" | 两机时钟偏差（67s）→ move_group 判状态陈旧 | Jetson 对到**服务器**时间（§2.4；`/usr/local/bin/ur5_timesync.sh`） |
+| goal 被 `Goal was rejected by server` + Jetson 侧 "Controller is not running" | 示教器**停程序→再 play** 后 controller_stopper 的重激活批被 friction_model 竞态堵死 → scaled_JTC 留 inactive | 容器内补激活：`ros2 run controller_manager spawner scaled_joint_trajectory_controller friction_model_controller --controller-manager /controller_manager` |
+| go_home 规划出"腕整圈回转" | UR 报累积角（腕 355°，home 0°） | go_home 已内置就近 2π 等价（`2fde824`）；自定义运动也要同样处理 |
+| `Skipping invalid start state` | 臂停在自定义窄限位外（shoulder_lift 限 [-120°,30°]） | 手动把臂挪进限位区间（示教器看肩部值） |
 
 ---
 
