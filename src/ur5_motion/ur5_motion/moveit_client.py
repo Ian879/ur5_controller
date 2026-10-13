@@ -118,8 +118,21 @@ class UR5MoveIt:
         self._wait_executed("move_to_joint")
 
     def go_home(self) -> None:
-        """移到 SRDF home 位姿（[0,-π/2,0,0,0,0]）。快速复位用。"""
-        self.move_to_joint(HOME_JOINTS)
+        """移到 SRDF home 位姿。快速复位用。
+
+        关节目标做【就近 2π 等价】处理（同 demo_grasp._junwrap）：真机 UR 的编码器
+        会报累积角（wrist 报 355° 而 home 是 0°）——直接规划会得到"腕整圈回转"
+        的疯狂轨迹（2026-10-13 真机实测：目标 0° vs 当前 305° → 规划 -305° 回转）。
+        等价后 wrist 目标变 360°，只转零头。"""
+        import math as _m
+        try:
+            cur = self.get_current_joints()
+        except Exception as exc:  # noqa: BLE001
+            self._log.warn(f"go_home 读当前关节失败（{exc}）——用未解缠 home 目标")
+            cur = [0.0] * 6
+        goal = [h + round((c - h) / (2 * _m.pi)) * 2 * _m.pi
+                for c, h in zip(cur, HOME_JOINTS)]
+        self.move_to_joint(goal)
 
     def move_to_pose(
         self,
