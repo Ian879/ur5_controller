@@ -556,6 +556,7 @@ docker logs ur5_hw --tail 50             # 容器日志
 | `Skipping invalid start state` | 臂停在自定义窄限位外（shoulder_lift 限 [-120°,30°]） | 手动把臂挪进限位区间（示教器看肩部值） |
 | go_home 卡死无输出 / 日志见 "more than one action server for ...gripper_cmd" | `real_gripper_action` 有多个实例——**用 pkill 重启 launch 会留孤儿**（它只杀 launch，杀不到 launch 派生的节点进程，重启几次就攒几个） | `docker restart ur5_hw` 一刀切干净（容器内全进程），再重起 launch——**重启硬件层一律用这个配方，别用 pkill** |
 | 服务器侧莫名 DDS 半瘫（新进程收不到数据） | 强杀过的 fastrtps 进程留下 SHM 陈锁/半伤状态 | 重启服务器规划层（bringup_real_down + up）；别手删 `/dev/shm/fastrtps_*`（会伤活进程） |
+| **夹爪 action 读数全跟但手指不动**（"幻影读数"） | **USB 瞬断**（CH340 重枚举，`ls -la /dev/ttyUSB0` 时间戳晚于起栈即实锤）把 pylebai 会话打懵：写打进死句柄、读回编造的"跟命令值"——极具迷惑性，reached 都报 True | `docker restart ur5_hw` 取新会话即愈。判别法：停栈后裸 Modbus 读 40005（帧 `01039c450001bb8f`）——夹爪自报值 ≠ action 读数 = 幻影实锤（2026-10-24 两轮实测） |
 
 ---
 
