@@ -19,6 +19,8 @@ MultiThreadedExecutor 线程持续 spin。
 
 from __future__ import annotations
 
+import math
+import os
 import threading
 from typing import Optional, Sequence
 
@@ -38,6 +40,15 @@ JOINT_NAMES = [
 ]
 # SRDF 命名位姿 home（ur_manipulator/home）：pan/lift/elbow/wrist1/2/3
 HOME_JOINTS = [0.0, -0.7854, 0.0, 0.0, 0.0, 0.0]  # shoulder_lift=-45°（原 -90°）
+# 自定义 home：UR5_HOME_JOINTS="pan,lift,elbow,w1,w2,w3"（【度】，从示教器直接抄）
+# 覆盖默认值，go_home/LOOK 类复位都跟着走。注意窄限位 shoulder_lift ∈ [-120°,30°]。
+# 例：UR5_HOME_JOINTS="0,-60,30,0,90,0" ros2 run ur5_motion go_home
+_home_env = os.environ.get("UR5_HOME_JOINTS", "")
+if _home_env:
+    _degs = [float(v) for v in _home_env.split(",")]
+    if len(_degs) != 6:
+        raise ValueError(f"UR5_HOME_JOINTS 需要 6 个逗号分隔的度数，收到 {len(_degs)} 个: {_home_env!r}")
+    HOME_JOINTS = [math.radians(d) for d in _degs]
 BASE_LINK = "base_link"
 END_EFFECTOR = "tool0"
 GROUP_NAME = "ur_manipulator"
