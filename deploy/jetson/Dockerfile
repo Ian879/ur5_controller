@@ -3,6 +3,7 @@
 # 只跑 hardware.launch.py（ur_robot_driver + Lebai 夹爪 + Orbbec 相机）；
 # move_group / planner / demo / FoundationPose 在 GPU 服务器——本镜像不含
 # MoveIt / pymoveit2 / isaac 相关任何东西。
+# （例外：末尾一层装 moveit 的 rviz 插件——见文件底部"RViz 调试视图"。）
 #
 # 纯 CPU 控制：普通 ros:humble 即可（无需 L4T/CUDA 变体镜像）。
 # arm64 在 Jetson 上构建（首次 15-40min）；amd64 可在开发服务器烟测构建
@@ -89,5 +90,17 @@ RUN chmod +x /entrypoint.sh
 #   /root/.bashrc       —— `docker exec -it ... bash`（交互）
 RUN echo '. /opt/ros/humble/setup.sh 2>/dev/null; . /ws/install/setup.bash 2>/dev/null' > /etc/profile.d/ros-ws.sh \
     && echo '. /opt/ros/humble/setup.sh 2>/dev/null; . /ws/install/setup.bash 2>/dev/null' >> /root/.bashrc
+
+# RViz 调试视图（2026-10-24）：Jetson 接显示器当现场调试站——deploy/jetson/jetson_rviz.sh
+# 起一次性容器（host 网络，DDS 同域）跑 rviz2，看/管全栈话题（含服务器 move_group，
+# MotionPlanning 面板可直接远程规划执行）。裸 rviz2 是 ros:humble 自带，但 MotionPlanning
+# 插件（moveit_rviz_plugin）镜像里没有，得显式装；vision-msgs 插件给 /pose_estimation/output
+# （Detection3DArray）画 3D 框。
+# ⚠ 本层放在 colcon 构建层之后：改这行只重建本层，不动 15min 的构建缓存。
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ros-humble-moveit-ros-visualization \
+    ros-humble-vision-msgs-rviz-plugins \
+    && rm -rf /var/lib/apt/lists/*
+
 ENTRYPOINT ["/entrypoint.sh"]
 CMD ["bash"]
