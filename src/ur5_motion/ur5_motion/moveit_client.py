@@ -39,7 +39,8 @@ JOINT_NAMES = [
     "wrist_3_joint",
 ]
 # SRDF 命名位姿 home（ur_manipulator/home）：pan/lift/elbow/wrist1/2/3
-HOME_JOINTS = [0.0, -0.7854, 0.0, 0.0, 0.0, 0.0]  # shoulder_lift=-45°（原 -90°）
+# 现场定版姿态（2026-10-24 用户指定）：[90,-45,35,-70,-90,0]°——示教器抄录
+HOME_JOINTS = [1.5708, -0.7854, 0.6109, -1.2217, -1.5708, 0.0]
 # 自定义 home：UR5_HOME_JOINTS="pan,lift,elbow,w1,w2,w3"（【度】，从示教器直接抄）
 # 覆盖默认值，go_home/LOOK 类复位都跟着走。注意窄限位 shoulder_lift ∈ [-120°,30°]。
 # 例：UR5_HOME_JOINTS="0,-60,30,0,90,0" ros2 run ur5_motion go_home
