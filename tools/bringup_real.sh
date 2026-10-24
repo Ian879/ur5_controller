@@ -56,8 +56,11 @@ tmux kill-session -t "$SESSION" 2>/dev/null && log "杀掉旧 session $SESSION" 
 log "起规划层 planning.launch.py（窗 plan）..."
 tmux new-session -d -s "$SESSION" -n plan
 RVIZ_ARG="launch_rviz:=$([ "$RVIZ" = "1" ] && echo true || echo false)"
+# RViz 要 X：tmux 服务器环境常无 DISPLAY（本机桌面在 :1）——起 RViz 时显式补，否则静默死
+DISP_PREFIX=""
+[ "$RVIZ" = "1" ] && DISP_PREFIX='export DISPLAY=${DISPLAY:-:1}; '
 tmux send-keys -t "$SESSION:plan" \
-  "export RMW_IMPLEMENTATION=$RMW_IMPLEMENTATION; cd $REPO && source tools/source_env.sh && ros2 launch ur5_bringup planning.launch.py use_sim_time:=false $RVIZ_ARG" C-m
+  "export RMW_IMPLEMENTATION=$RMW_IMPLEMENTATION; $DISP_PREFIX cd $REPO && source tools/source_env.sh && ros2 launch ur5_bringup planning.launch.py use_sim_time:=false $RVIZ_ARG" C-m
 _wait_for "move_group" "timeout 4 ros2 node list 2>/dev/null | grep -q '^/move_group$'" 60
 
 # ── 缝检查：Jetson 硬件层在吗（不在只 warn——可能还没起） ──
