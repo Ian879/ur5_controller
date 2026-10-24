@@ -74,8 +74,8 @@ def generate_launch_description():
             DeclareLaunchArgument("launch_rviz", default_value="true"),
             DeclareLaunchArgument(
                 "gripper_port",
-                default_value="/dev/ttyUSB0",
-                description="Lebai 串口夹爪的设备节点（仅 backend:=real 用）。",
+                default_value="/dev/lebai_gripper",
+                description="Lebai 串口夹爪设备（udev 别名；容器内由 jetson_up 启动时按 by-id 补建软链）。",
             ),
             OpaqueFunction(function=_setup),
         ]

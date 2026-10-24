@@ -13,7 +13,9 @@ set -euo pipefail
 IMAGE="${IMAGE:-ur5-hw:humble}"
 CONTAINER=ur5_hw
 UR5_HOST="${ROBOT_IP:-${UR5_HOST:-192.168.0.2}}"
-GRIPPER_DEV="${GRIPPER_DEV:-/dev/ttyUSB0}"   # 阶段2 后建议 udev 别名 /dev/lebai_gripper
+GRIPPER_DEV="${GRIPPER_DEV:-/dev/lebai_gripper}"   # udev 别名（默认）；容器内启动时自动补建软链
+# by-id 稳定路径（ttyUSB 编号漂移也不变；CH340 无序列号，同型号多只时会撞——那时改用 by-path）
+GRIPPER_BY_ID="${GRIPPER_BY_ID:-/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0}"
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 BUILD=0; SHELL_ONLY=0; EXTRA=()
@@ -44,9 +46,11 @@ fi
 # 容器在吗（在就直接复用——launch 参数不烤进容器，每次 exec 时给）
 if ! docker inspect "$CONTAINER" >/dev/null 2>&1; then
   echo "[jetson_up] 起容器 $CONTAINER（host 网络 + ipc + privileged，UR5_HOST=$UR5_HOST）..."
+  # -v /dev/serial：把宿主机 udev 的 by-id 稳定路径目录带进容器（容器重建 /dev 不含软链，
+  #   启动时按 by-id 补建 /dev/lebai_gripper 软链——ttyUSB 编号漂移不影响）。
   docker run -d --name "$CONTAINER" --restart unless-stopped \
     --network host --ipc host --privileged \
-    --device "$GRIPPER_DEV" \
+    -v /dev/serial:/dev/serial:ro \
     -e ROS_DOMAIN_ID=0 \
     -e RMW_IMPLEMENTATION=rmw_fastrtps_cpp \
     -e UR5_HOST="$UR5_HOST" \
@@ -71,6 +75,11 @@ if [ "$SHELL_ONLY" = "1" ]; then
 fi
 
 # 前台起硬件层（Ctrl-C 只停 launch；容器保留）。bash -lc 让 .bashrc 的自动 source 生效。
+# 启动前补建夹爪软链：容器 /dev 无 udev 软链——按 by-id 稳定路径解析后 ln 到 GRIPPER_DEV
+# （每次启动重解析，ttyUSB 编号漂移自动跟对）。
 echo "[jetson_up] 起 hardware.launch.py backend:=real（Ctrl-C 停）..."
-exec docker exec -it "$CONTAINER" bash -lc \
-  "ros2 launch ur5_bringup hardware.launch.py backend:=real gripper_port:=$GRIPPER_DEV ${EXTRA[*]}"
+exec docker exec -it "$CONTAINER" bash -lc "
+  if [ ! -e $GRIPPER_DEV ] && [ -e $GRIPPER_BY_ID ]; then
+    ln -sf \$(readlink -f $GRIPPER_BY_ID) $GRIPPER_DEV && echo '[jetson_up] 容器内已建 $GRIPPER_DEV → '\$(readlink -f $GRIPPER_BY_ID);
+  fi
+  ros2 launch ur5_bringup hardware.launch.py backend:=real gripper_port:=$GRIPPER_DEV ${EXTRA[*]}"
