@@ -227,8 +227,10 @@ Visualization Manager:
       Value: true
       Velocity_Scaling_Factor: 0.1
     # ── ur5_bringup fork 追加（P3）：RGBD 相机显示 ──
+    # ⚠ 话题用 /camera/depth/image_raw（真机 Orbbec 实发，RELIABLE）；
+    #   *_rect_raw 真机上没人发（HW align 那路没起，2026-10-29 实测 publisher=0）
     - Class: rviz_default_plugins/Image
-      Enabled: false
+      Enabled: true
       Max Value: 1
       Median window: 5
       Min Value: 0
@@ -239,10 +241,10 @@ Visualization Manager:
         Durability Policy: Volatile
         History Policy: Keep Last
         Reliability Policy: Reliable
-        Value: /camera/depth/image_rect_raw
-      Value: false
+        Value: /camera/depth/image_raw
+      Value: true
     - Class: rviz_default_plugins/Image
-      Enabled: false
+      Enabled: true
       Max Value: 1
       Median window: 5
       Min Value: 0
@@ -254,7 +256,7 @@ Visualization Manager:
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /camera/color/image_raw
-      Value: false
+      Value: true
     - Class: rviz_default_plugins/DepthCloud
       Enabled: false
       Name: DepthCloud
@@ -266,9 +268,23 @@ Visualization Manager:
         Durability Policy: Volatile
         History Policy: Keep Last
         Reliability Policy: Reliable
-        Value: /camera/depth/image_rect_raw
+        Value: /camera/depth/image_raw
       Use Fixed Frame: true
       Value: false
+    # ── MoveIt 拖动球：goal 交互标记（彩色球+环）要靠这个 display 才显示，
+    #    fork 时漏了 → 没球可拖（2026-10-29 补）
+    - Class: rviz_default_plugins/InteractiveMarkers
+      Enable Transparency: true
+      Enabled: true
+      Interactive Markers Namespace: ''
+      Name: InteractiveMarkers
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /rviz_moveit_motion_planning_display/robot_interaction_interactive_marker_topic
+      Value: true
   Enabled: true
   Global Options:
     Background Color: 48; 48; 48
