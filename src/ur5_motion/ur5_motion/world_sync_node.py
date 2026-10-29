@@ -9,6 +9,7 @@
 """
 
 import json
+import math
 import os
 
 import rclpy
@@ -19,6 +20,12 @@ from shape_msgs.msg import SolidPrimitive
 
 JSON_PATH = os.path.expanduser("~/Desktop/scene_collisions.json")
 APPLY_PLANNING_SCENE = "/apply_planning_scene"
+
+
+def _rot_z(x: float, y: float, th: float):
+    """绕 z 轴转 th 弧度（组级 yaw_deg：整组绕 frame 原点转，位置+朝向一起）。"""
+    c, s = math.cos(th), math.sin(th)
+    return x * c - y * s, x * s + y * c
 
 
 def main():
@@ -56,20 +63,23 @@ def main():
         co.header.frame_id = frame
         co.id = group["name"]
         co.operation = CollisionObject.ADD
+        yaw_deg = float(group.get("yaw_deg", 0.0))
+        th = math.radians(yaw_deg)
         for shape in group["shapes"]:
             prim = SolidPrimitive()
             prim.type = SolidPrimitive.BOX
             prim.dimensions = [float(s) for s in shape["size"]]
             co.primitives.append(prim)
             pose = Pose()
-            pose.position.x, pose.position.y, pose.position.z = (
-                float(p) for p in shape["position"]
-            )
-            pose.orientation.w = 1.0
+            px, py, pz = (float(p) for p in shape["position"])
+            pose.position.x, pose.position.y = _rot_z(px, py, th)
+            pose.position.z = pz
+            pose.orientation.z = math.sin(th / 2.0)
+            pose.orientation.w = math.cos(th / 2.0)
             co.primitive_poses.append(pose)
         req.scene.world.collision_objects.append(co)
         log.info(
-            f"  + compound '{group['name']}' ({len(group['shapes'])} shapes)"
+            f"  + compound '{group['name']}' ({len(group['shapes'])} shapes, yaw={yaw_deg:g}°)"
         )
 
     future = client.call_async(req)

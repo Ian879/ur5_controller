@@ -14,6 +14,10 @@ IMAGE="${IMAGE:-ur5-hw:humble}"
 CONTAINER=ur5_hw
 UR5_HOST="${ROBOT_IP:-${UR5_HOST:-192.168.0.2}}"
 GRIPPER_DEV="${GRIPPER_DEV:-/dev/lebai_gripper}"   # udev 别名（默认）；容器内启动时自动补建软链
+# world→base 抬升/安装转角（2026-10-29 现场标定：基座相对桌面/房间 -20° 装、台面高 1.2112）。
+# 改了就 docker rm ur5_hw 后重跑本脚本（容器 env 不影响 launch 参数，热换 TF 节点也行）。
+WORLD_TO_BASE_Z="${WORLD_TO_BASE_Z:-1.2112}"
+WORLD_TO_BASE_YAW="${WORLD_TO_BASE_YAW:--0.3491}"   # -20°（rad）；桌子在 scene_collisions.json 的 base 系里 yaw_deg=+20 补偿
 # by-id 稳定路径（ttyUSB 编号漂移也不变；CH340 无序列号，同型号多只时会撞——那时改用 by-path）
 GRIPPER_BY_ID="${GRIPPER_BY_ID:-/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0}"
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -84,4 +88,5 @@ exec docker exec -it "$CONTAINER" bash -lc "
   if [ ! -e $GRIPPER_DEV ] && [ -e $GRIPPER_BY_ID ]; then
     ln -sf \$(readlink -f $GRIPPER_BY_ID) $GRIPPER_DEV && echo '[jetson_up] 容器内已建 $GRIPPER_DEV → '\$(readlink -f $GRIPPER_BY_ID);
   fi
-  ros2 launch ur5_bringup hardware.launch.py backend:=real gripper_port:=$GRIPPER_DEV ${EXTRA[*]}"
+  ros2 launch ur5_bringup hardware.launch.py backend:=real gripper_port:=$GRIPPER_DEV \
+    world_to_base_z:=$WORLD_TO_BASE_Z world_to_base_yaw:=$WORLD_TO_BASE_YAW ${EXTRA[*]}"
