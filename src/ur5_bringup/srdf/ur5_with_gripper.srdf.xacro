@@ -18,11 +18,14 @@
     <chain base_link="base_link" tip_link="gripper_tip_tcp" />
   </group>
   <group_state name="home" group="ur_manipulator">
-    <joint name="elbow_joint" value="0" />
+    <!-- 现场定版（2026-10-13 示教器抄录 [90,-45,35,-70,-90,0]°，与 demo 的
+         HOME_JOINTS / UR5_HOME_JOINTS 一致；dfd991e 之前这里是老默认值，
+         RViz goal-state 选 home 会跟真机 go_home 对不上） -->
+    <joint name="elbow_joint" value="0.6109" />
     <joint name="shoulder_lift_joint" value="-0.7854" />
-    <joint name="shoulder_pan_joint" value="0" />
-    <joint name="wrist_1_joint" value="0" />
-    <joint name="wrist_2_joint" value="0" />
+    <joint name="shoulder_pan_joint" value="1.5708" />
+    <joint name="wrist_1_joint" value="-1.2217" />
+    <joint name="wrist_2_joint" value="-1.5708" />
     <joint name="wrist_3_joint" value="0" />
   </group_state>
   <group_state name="up" group="ur_manipulator">

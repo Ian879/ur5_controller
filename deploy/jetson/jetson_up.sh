@@ -33,7 +33,9 @@ command -v docker >/dev/null || { echo "缺 docker（见 docs/jetson_deployment.
 if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
   if [ "$BUILD" = "1" ]; then
     echo "[jetson_up] 镜像 $IMAGE 不在，开始构建（内网需代理：先 export http_proxy/https_proxy）..."
+    # JOBS 默认 2：8G NX 全核 colcon 会 OOM（2026-10-10 实测；2026-10-24 忘带差点又炸）
     docker build --network=host \
+      --build-arg JOBS="${JOBS:-2}" \
       ${http_proxy:+--build-arg http_proxy="$http_proxy"} \
       ${https_proxy:+--build-arg https_proxy="$https_proxy"} \
       ${no_proxy:+--build-arg no_proxy="$no_proxy"} \
